@@ -1,55 +1,165 @@
 # postgresql-prolog
-A Prolog library to connect to PostgreSQL databases
 
-# Compatible systems
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?logo=postgresql&logoColor=white)](https://github.com/postgres/postgres)
+[![SWI-Prolog](https://img.shields.io/badge/SWI--Prolog-E61B23?logo=prolog&logoColor=white)](https://github.com/SWI-Prolog/swipl-devel)
 
-* [Scryer Prolog](https://github.com/mthom/scryer-prolog)
+PostgreSQL driver prototype packaged as an SWI-Prolog pack.
 
-# Installation
+See `ROADMAP.md` for the planned architecture steps.
 
-The library itself are just three Prolog files (postgresql.pl, messages.pl and types.pl). They need to be in the same folder. An easy way to install this library in your project is copying that files. Other way is using Git submodules to get this whole folder, and load the postgresql.pl file from there.
+## Current status
 
+The active driver module is `pg`, provided by `library(postgresql_prolog/pg)`.
+
+Implemented now:
+
+- connect/disconnect
+- simple query protocol
+- explicit session state and protocol-phase tracking via `pg_session.pl`
+- unified message-reading/recovery path to `ReadyForQuery`
+- password and md5 authentication
+- basic result decoding for `int4`, `int8`, `text`, `varchar`, `bool`, `null`
+- prepared statements / parameterized queries
+- recovery after simple-query and extended-query protocol errors
+- LISTEN/NOTIFY
+- `COPY FROM STDIN` for text/csv input via `pg_copy.pl`
+- metadata helpers for backend PID, server parameters, and last command tag
+
+Not implemented yet:
+
+- SCRAM/SASL authentication
+- SSL
+- `COPY TO STDOUT`
+- binary COPY
+- cancel API
+- binary result formats for extended query mode
+
+## Requirements
+
+- SWI-Prolog
+- running PostgreSQL server
+
+## Usage
+
+Install or attach the pack and load the driver:
+
+```prolog
+:- use_module(library(postgresql_prolog/pg)).
 ```
-git submodule add https://github.com/aarroyoc/postgresql-prolog postgresql
+
+For local development from a checkout, add the repository `prolog/` directory to the library search path before loading the module:
+
+```prolog
+:- asserta(user:file_search_path(library, 'prolog')).
+:- use_module(library(postgresql_prolog/pg)).
 ```
 
-# Usage
+Connect:
 
-The library provides two predicates: `connect/6` and `query/3`.
-
+```prolog
+pg_connect(+HostPort, -Connection, +Options)
 ```
-connect(+User, +Password, +Host, +Port, +Database, -Connection)
+
+Where:
+
+- `HostPort` is `Host:Port`
+- `Options` may contain `user/1`, `password/1`, `database/1`
+- `password/1` is optional when PostgreSQL auth does not require it
+
+Run a query:
+
+```prolog
+pg_query(+Connection, +SQL, -Result)
 ```
-Connects to a PostgreSQL server and tries to authenticate using `password` scheme. This is the only authentication method supported right now. Please, note that this auth method is not the default in some PostgreSQL setups, you changes are needed. If you're running PostgreSQL in Docker, you need to set the environment variable `POSTGRES_HOST_AUTH_METHOD` to `password`.
 
+`Result` is one of:
+
+- `ok`
+- `ok(Tag)`
+- `error(Fields)`
+- `data(Columns, Rows)`
+
+Listen for notifications:
+
+```prolog
+pg_listen(+Connection, +Channel, +Handler)
+pg_wait_for_notification(+Connection, +TimeoutSeconds, -Notification)
+pg_notify(+Connection, +Channel, +Payload)
 ```
-query(+Connection, +Query, -Result)
+
+`Handler` is either `none` or a callable that will be invoked as `call(Handler, Notification)`.
+
+Inspect connection metadata:
+
+```prolog
+pg_backend_pid(+Connection, -PID)
+pg_server_parameter(+Connection, +Name, -Value)
+pg_last_command_tag(+Connection, -Tag)
 ```
-Executes a SQL query over a connection. Result can be:
 
-- ok
-- error(ErrorString)
-- data(ColumnDescription, Rows)
+Send rows with `COPY FROM STDIN`:
 
-ok is returned if the query doesn't output a table (INSERT, UPDATE, DELETE, CREATE TABLE, ...) and succeeds.
-
-error(ErrorString) is returned if an error is found.
-
-data(ColumnDescription, Rows) is returned when a query outputs a table (SELECT). ColumnDescription is a list of column names and Rows is a list of a list of each cell value.
-
-# Examples
-
+```prolog
+pg_copy_from(+Connection, +CopySQL, +Data)
 ```
-:- use_module('postgresql').
 
-test :-
-    connect("postgres", "postgres", '127.0.0.1', 5432, "postgres", Connection),
-    query(Connection, "DROP TABLE IF EXISTS test_table", ok),
-    query(Connection, "CREATE TABLE test_table (id serial, name text)", ok),
-    query(Connection, "INSERT INTO test_table (name) VALUES ('test')", ok),
-    query(Connection, "SELECT * FROM test_table", Rows),
-    Rows = data(["id", "name"], [["1", "test"]]),
-    query(Connection, "UPDATE test_table SET name = 'test2' WHERE id = 1", ok),
-    query(Connection, "SELECT * FROM test_table", Rows2),
-    data(["id", "name"], [["1", "test2"]]).
+`Data` may be a single text chunk, a byte list, a list of chunks, or `chunks(List)`.
+For text/csv COPY, each chunk is sent as one `CopyData` message and the driver finishes with `CopyDone`.
+
+Current notes:
+
+- simple-query and prepared-query paths recover to a usable connection after server-side errors
+- multi-statement simple queries return the last result set / command status
+- `pg_server_parameter/3` reads cached startup and status parameters already seen on the connection
+- `pg_copy_from/3` currently supports `COPY ... FROM STDIN` in text/csv mode; binary COPY is planned next
+
+## Example
+
+```prolog
+:- use_module(library(postgresql_prolog/pg)).
+
+demo :-
+    pg_connect('127.0.0.1':5432, Conn,
+        [ user("postgres"),
+          database("postgres")
+        ]),
+    pg_query(Conn, "SELECT 1 AS n", Result),
+    writeln(Result),
+    pg_disconnect(Conn).
 ```
+
+Example result:
+
+```prolog
+data([col{name:"n",type_oid:23,...}], [[1]])
+```
+
+## Test and development
+
+Environment variables used by the test and smoke commands:
+
+- `PGHOST`
+- `PGPORT`
+- `PGUSER`
+- `PGPASSWORD`
+- `PGDATABASE`
+
+Commands:
+
+```bash
+make smoke
+make test
+make coverage
+make test-local-pg
+make release
+```
+
+`make coverage` prints a summary and stores it in `coverage/summary.txt`.
+
+`make release` creates a tarball in `dist/`.
+
+## Repository layout
+
+- `pack.pl` contains SWI-Prolog pack metadata
+- `prolog/postgresql_prolog/` contains the active driver modules
+- `test/` contains plunit tests and SQL fixtures
