@@ -3,15 +3,19 @@ on: [push]
 
 jobs:
   test:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-latest
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGUSER: postgres
+      PGDATABASE: postgres
     services:
       postgres:
         image: postgres:14.0-alpine
         env:
           POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
           POSTGRES_DB: postgres
-          POSTGRES_HOST_AUTH_METHOD: password
+          POSTGRES_HOST_AUTH_METHOD: trust
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -20,27 +24,19 @@ jobs:
         ports:
           - 5432:5432
     steps:
-      - name: Install Rust cargo
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          profile: minimal
-          components: cargo
       - name: Checkout
         uses: actions/checkout@v3
-      - name: Checkout Scryer Prolog
-        uses: actions/checkout@v3
-        with:
-          repository: mthom/scryer-prolog
-          path: scryer-prolog
-      - name: Compile Scryer Prolog
-        run: cargo build --release
-        working-directory: scryer-prolog
-      - name: Install Scryer Prolog
-        run: sudo cp scryer-prolog/target/release/scryer-prolog /usr/bin/scryer-prolog
-      - name: Install Logtalk
-        uses: logtalk-actions/setup-logtalk@master
-        with:
-          logtalk-version: latest
-      - name: Execute tests
-        run: logtalk_tester -p scryer
+      - name: Install SWI-Prolog
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y software-properties-common gnupg
+          sudo apt-add-repository ppa:swi-prolog/stable -y
+          sudo apt-get update
+          sudo apt-get install -y swi-prolog
+      - name: Wait for Postgres
+        run: |
+          for i in {1..30}; do
+            if pg_isready -h 127.0.0.1 -p 5432 -U postgres; then
+              echo "Postgres is ready"; break; fi; sleep 1; done
+      - name: Run tests
+        run: make test
