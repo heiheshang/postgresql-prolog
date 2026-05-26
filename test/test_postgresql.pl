@@ -315,6 +315,27 @@ test(copy_from_missing_table_reports_error) :-
         )
     ).
 
+test(copy_from_recovery_after_server_data_error) :-
+    with_connection(
+        [Connection]>>(
+            pg_query(Connection, "CREATE TEMP TABLE pg_copy_recovery(id int, value text)", _),
+            catch(
+                pg_copy_from(Connection,
+                             "COPY pg_copy_recovery (id, value) FROM STDIN WITH (FORMAT text)",
+                             chunks([
+                                 "1\talpha\n",
+                                 "broken-id\tbeta\n",
+                                 "3\tgamma\n"
+                             ])),
+                Error,
+                true
+            ),
+            assertion(Error = error(pg_copy_error(_, _), _)),
+            pg_query(Connection, "SELECT 1 AS n", Result),
+            assertion(Result = data([_], [[1]]))
+        )
+    ).
+
 :- end_tests(pg_driver).
 
 run_all_tests :-

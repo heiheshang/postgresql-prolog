@@ -1,0 +1,87 @@
+# PostgreSQL Prolog Driver Roadmap
+
+## Near term
+
+1. `pg_session.pl`
+
+- Status: done
+- Introduced explicit session state and protocol phases:
+  - `ready`
+  - `simple_query`
+  - `extended_query`
+  - `copy_in`
+  - `copy_out`
+  - `failed_until_sync`
+- Centralized backend PID, cancel secret, server parameters, async handlers, and last command tag.
+- Added one message-reading/recovery path that drains correctly to `ReadyForQuery`.
+
+2. Extended-query recovery
+
+- Status: done
+- Strengthened `pg_prepared.pl` and session orchestration around parse/bind/execute errors.
+- Made `sync_required` an explicit internal state in the session layer after protocol failures.
+- Added tests for parse/bind/execute failure and successful reuse of the connection after recovery.
+
+3. `pg_copy.pl`
+
+- Status: partial
+- Added a dedicated `pg_copy.pl` layer and wired `pg_copy_from/3` through the public API.
+- Added protocol support for `CopyData`, `CopyDone`, `CopyFail`, and parsing `CopyInResponse`.
+- Implemented `COPY FROM STDIN` for text/csv input.
+- Added passing tests for:
+  - text `COPY FROM STDIN`
+  - csv `COPY FROM STDIN`
+  - startup/error path for `pg_copy_from/3`
+  - connection reuse after server-side COPY data error
+- Remaining inside this layer:
+  - add binary COPY
+  - add `COPY TO STDOUT`
+  - port more scenarios from `epgsql_copy_SUITE`
+
+## Next layer
+
+4. `pg_async.pl` expansion
+
+- Status: partial
+- Keep notice/notify handling in the async layer.
+- Stable queue/handler behavior now exists through the session layer and `pg_async.pl`.
+- Backend PID access is now exposed through session metadata helpers.
+- Later add `cancel/1` via a temporary connection using backend PID and secret.
+
+5. Session metadata API
+
+- Status: done
+- Added public helpers for:
+  - backend PID
+  - server parameter lookup
+  - last command tag or status
+
+6. Type system v2
+
+- Status: pending
+- Extend `pg_types.pl` with a cleaner registry for custom decoders/encoders.
+- Add the next useful types: arrays, json/jsonb, uuid, and date/time families.
+- Prepare for binary result formats in extended query mode.
+
+## Testing priorities
+
+Done:
+
+1. Extended-query error recovery
+2. `RETURNING` on `DELETE`
+3. Parameter/status cache behavior
+4. Backend PID API
+5. Multi-statement simple query behavior
+
+Remaining:
+
+6. deeper COPY recovery and protocol suite
+
+## Summary
+
+The shortest practical path is:
+
+1. finish COPY recovery and expand `pg_copy.pl`
+2. add `cancel/1` and any remaining async expansion
+3. expand the type system
+4. add SCRAM/SASL and SSL

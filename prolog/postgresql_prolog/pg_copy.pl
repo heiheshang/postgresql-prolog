@@ -16,7 +16,7 @@ pg_copy_from(Connection, SQL, Data) :-
         send_copy_data_and_finish(Stream, Data),
         Error,
         (
-            abort_copy(Stream, Error),
+            abort_copy_if_needed(Stream, Error),
             throw(Error)
         )
     ).
@@ -56,7 +56,13 @@ send_copy_chunks(Stream, [Chunk|Chunks]) :-
     copy_chunk_bytes(Chunk, Bytes),
     copy_data_message(Bytes, Msg),
     write_message(Stream, Msg),
+    maybe_finish_copy_after_server_error(Stream),
     send_copy_chunks(Stream, Chunks).
+
+abort_copy_if_needed(_Stream, error(pg_copy_error(_, _), _)) :-
+    !.
+abort_copy_if_needed(Stream, Error) :-
+    abort_copy(Stream, Error).
 
 abort_copy(Stream, Error) :-
     message_to_string(Error, Message),
@@ -80,6 +86,13 @@ finish_copy(Stream) :-
         write_message(Stream, DoneMsg),
         pg_session_read_until_ready(Stream, Msgs),
         ensure_copy_finish_success(Msgs)
+    ;   maybe_finish_copy_after_server_error(Stream)
+    ).
+
+maybe_finish_copy_after_server_error(Stream) :-
+    wait_for_input([Stream], Ready, 0),
+    (   Ready == []
+    ->  true
     ;   pg_session_read_until_ready(Stream, Msgs),
         ensure_copy_finish_success(Msgs)
     ).

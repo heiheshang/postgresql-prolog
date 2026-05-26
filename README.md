@@ -111,7 +111,7 @@ Current notes:
 - simple-query and prepared-query paths recover to a usable connection after server-side errors
 - multi-statement simple queries return the last result set / command status
 - `pg_server_parameter/3` reads cached startup and status parameters already seen on the connection
-- `pg_copy_from/3` currently supports `COPY ... FROM STDIN` in text/csv mode; binary COPY is planned next
+- `pg_copy_from/3` currently supports `COPY ... FROM STDIN` in text/csv mode and now recovers to a reusable connection after server-side COPY data errors; binary COPY is planned next
 
 ## Example
 
