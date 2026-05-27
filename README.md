@@ -1,6 +1,7 @@
 # postgresql-prolog
 
 [![CI](https://github.com/heiheshang/postgresql-prolog/actions/workflows/test.yml/badge.svg)](https://github.com/heiheshang/postgresql-prolog/actions/workflows/test.yml)
+[![Release](https://img.shields.io/github/v/release/heiheshang/postgresql-prolog)](https://github.com/heiheshang/postgresql-prolog/releases)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?logo=postgresql&logoColor=white)](https://github.com/postgres/postgres)
 [![SWI-Prolog](https://img.shields.io/badge/SWI--Prolog-E61B23?logo=prolog&logoColor=white)](https://github.com/SWI-Prolog/swipl-devel)
 
