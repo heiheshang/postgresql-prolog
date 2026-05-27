@@ -43,12 +43,15 @@ register_type(OID, Name, Module) :-
     assertz(user_type(OID, Name, Module)).
 
 type_encoder(OID, Value, Encoded) :-
-    (   user_type(OID, _, Module)
-    ->  Module:encode(Value, Encoded)
-    ;   oid_type(OID, Type)
-    ->  encode_type(Type, Value, Encoded)
-    ;   encode_default(Value, Encoded)
-    ).
+    user_type(OID, _, Module),
+    !,
+    Module:encode(Value, Encoded).
+type_encoder(OID, Value, Encoded) :-
+    oid_type(OID, Type),
+    !,
+    encode_type(Type, Value, Encoded).
+type_encoder(_, Value, Encoded) :-
+    encode_default(Value, Encoded).
 
 encode_type(bool, true, "t").
 encode_type(bool, false, "f").
@@ -104,12 +107,15 @@ encode_default(Value, Text) :-
     ).
 
 type_decoder(OID, Data, Decoded) :-
-    (   user_type(OID, _, Module)
-    ->  Module:decode(Data, Decoded)
-    ;   oid_type(OID, Type)
-    ->  decode_type(Type, Data, Decoded)
-    ;   decode_default(Data, Decoded)
-    ).
+    user_type(OID, _, Module),
+    !,
+    Module:decode(Data, Decoded).
+type_decoder(OID, Data, Decoded) :-
+    oid_type(OID, Type),
+    !,
+    decode_type(Type, Data, Decoded).
+type_decoder(_, Data, Decoded) :-
+    decode_default(Data, Decoded).
 
 decode_type(bool, "t", true).
 decode_type(bool, "f", false).
@@ -206,15 +212,17 @@ parse_timestamp(Text, Year, Month, Day, Hour, Min, Sec) :-
     ).
 
 term_to_json(Term, Json) :-
-    (   is_dict(Term)
-    ->  atom_json_dict(Json, Term, [])
-    ;   (   string(Term)
-        ;   atom(Term)
-        )
-    ->  Json = Term
-    ;   blob(Term, json_dict)
-    ->  atom_json_dict(Json, Term, [])
-    ).
+    is_dict(Term),
+    !,
+    atom_json_dict(Json, Term, []).
+term_to_json(Term, Term) :-
+    (   string(Term)
+    ;   atom(Term)
+    ),
+    !.
+term_to_json(Term, Json) :-
+    blob(Term, json_dict),
+    atom_json_dict(Json, Term, []).
 
 :- multifile sandbox:safe_primitive/1.
 sandbox:safe_primitive(pg_types:_).
