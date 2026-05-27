@@ -143,6 +143,8 @@ Environment variables used by the test and smoke commands:
 - `PGUSER`
 - `PGPASSWORD`
 - `PGDATABASE`
+- `TEST_PG_AUTH` for the local test server (`trust` by default, or `md5`)
+- `TEST_PG_PASSWORD` for the local test server password when `TEST_PG_AUTH=md5`
 
 Commands:
 
@@ -151,8 +153,19 @@ make smoke
 make test
 make coverage
 make test-local-pg
+make test-local-pg-md5
 make release
 ```
+
+Examples:
+
+```bash
+make test-local-pg
+make test-local-pg-md5
+TEST_PG_AUTH=md5 TEST_PG_PASSWORD=md5pass make test-local-pg
+```
+
+`make test-local-pg` starts a disposable local PostgreSQL instance. In `trust` mode the generated `.test-pg/env.sh` omits `PGPASSWORD`; in `md5` mode it exports `PGPASSWORD` so the same test command can authenticate without extra setup.
 
 `make coverage` prints a summary and stores it in `coverage/summary.txt`.
 
