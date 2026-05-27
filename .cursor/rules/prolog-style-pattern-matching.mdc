@@ -1,0 +1,31 @@
+---
+description: Prefer idiomatic Prolog clauses and disciplined cut usage in Prolog files
+globs: **/*.pl
+alwaysApply: false
+---
+
+# Prolog Clause Style
+
+When editing Prolog files, prefer idiomatic Prolog style:
+
+- Prefer multiple clauses and head/body dispatch over `->` / `;` when the logic is simple ordered selection.
+- Add `!` only when it preserves intended determinism, clause priority, or compatibility with existing behavior.
+- Do not add `!` as a default optimization or style marker.
+- If clause ordering alone is enough, prefer that over a cut.
+- Keep `if-then-else` only when it is the clearest way to express the control flow or when replacing it would change semantics.
+
+Example:
+
+```prolog
+% Good: clauses express the dispatch order; cuts preserve the original commit points.
+type_encoder(OID, Value, Encoded) :-
+    user_type(OID, _, Module),
+    !,
+    Module:encode(Value, Encoded).
+type_encoder(OID, Value, Encoded) :-
+    oid_type(OID, Type),
+    !,
+    encode_type(Type, Value, Encoded).
+type_encoder(_, Value, Encoded) :-
+    encode_default(Value, Encoded).
+```
