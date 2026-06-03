@@ -4,6 +4,7 @@
     pg_execute_statement/4
 ]).
 
+:- use_module(library(apply)).
 :- use_module(library(postgresql_prolog/pg_protocol)).
 :- use_module(library(postgresql_prolog/pg_session)).
 :- use_module(library(postgresql_prolog/pg_types)).
