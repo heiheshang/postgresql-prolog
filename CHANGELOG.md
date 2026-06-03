@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.1
+
+Patch release that adds explicit `library(apply)` imports in `pg.pl` and
+`pg_prepared.pl` so `maplist/3` remains available in packaged builds.
+
 ## 0.1.0
 
 Initial public release of the SWI-Prolog PostgreSQL driver pack.
