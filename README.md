@@ -123,6 +123,12 @@ Connection options:
 
 `password/1` is optional when PostgreSQL authentication does not require it.
 
+Encoding contract:
+
+- the driver always negotiates `client_encoding=UTF8` during startup
+- SQL text, text parameters, text/csv `COPY FROM STDIN` chunks, notices, error fields, and text row values are encoded and decoded as UTF-8
+- sessions that cannot operate with `client_encoding=UTF8` are outside the supported contract
+
 Query result values are one of:
 
 - `ok`
@@ -173,6 +179,7 @@ pg_copy_from(Conn,
 - multi-statement simple queries return the last result set or command status
 - `pg_server_parameter/3` reads cached startup and status parameters already seen on the connection
 - `pg_copy_from/3` supports `COPY ... FROM STDIN` in text and csv mode and recovers to a reusable connection after server-side COPY data errors
+- UTF-8 is an explicit wire-level contract: the startup message requests `client_encoding=UTF8`, matching the driver's text codecs
 
 ## Architecture
 

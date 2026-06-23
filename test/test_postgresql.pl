@@ -11,6 +11,7 @@ setup_local_pack_path :-
 :- initialization(setup_local_pack_path, now).
 
 :- use_module(library(postgresql_prolog/pg)).
+:- use_module(library(postgresql_prolog/pg_protocol)).
 
 pg_env(Var, Default, Value) :-
     (   getenv(Var, Raw),
@@ -61,6 +62,13 @@ test(connect_success) :-
     with_connection(
         [Connection]>>assertion(Connection = pg_conn(_, _, _, _))
     ).
+
+test(startup_message_sets_client_encoding_utf8) :-
+    startup_message("alice", "example_db", Bytes),
+    startup_message_parameters(Bytes, Parameters),
+    assertion(member("user"-"alice", Parameters)),
+    assertion(member("database"-"example_db", Parameters)),
+    assertion(member("client_encoding"-"UTF8", Parameters)).
 
 test(empty_query) :-
     with_connection(
@@ -253,9 +261,23 @@ test(connection_metadata_api) :-
             assertion(PID > 0),
             pg_server_parameter(Connection, server_version, ServerVersion),
             assertion(string(ServerVersion)),
+            pg_server_parameter(Connection, client_encoding, ClientEncoding),
+            assertion(ClientEncoding == "UTF8"),
             pg_query(Connection, "SELECT 1", _),
             pg_last_command_tag(Connection, Tag),
             assertion(Tag == "SELECT 1")
+        )
+    ).
+
+test(non_ascii_roundtrip_utf8_contract) :-
+    with_connection(
+        [Connection]>>(
+            Value = "Привет, こんにちは",
+            pg_query(Connection,
+                     "SELECT $1::text AS echoed, 'ёж'::text AS literal",
+                     [Value],
+                     Result),
+            assertion(Result = data([_, _], [[Value, "ёж"]]))
         )
     ).
 
@@ -301,6 +323,27 @@ test(copy_from_csv) :-
         )
     ).
 
+test(copy_from_text_utf8_roundtrip) :-
+    with_connection(
+        [Connection]>>(
+            pg_query(Connection, "CREATE TEMP TABLE pg_copy_utf8(id int, value text)", _),
+            pg_copy_from(Connection,
+                         "COPY pg_copy_utf8 (id, value) FROM STDIN WITH (FORMAT text)",
+                         chunks([
+                             "30\tПривет\n",
+                             "31\tこんにちは\n",
+                             "32\tёж\n"
+                         ])),
+            pg_query(Connection,
+                     "SELECT id, value FROM pg_copy_utf8 ORDER BY id",
+                     Result),
+            assertion(Result = data([_, _],
+                                    [[30, "Привет"],
+                                     [31, "こんにちは"],
+                                     [32, "ёж"]]))
+        )
+    ).
+
 test(copy_from_missing_table_reports_error) :-
     with_connection(
         [Connection]>>(
@@ -340,3 +383,21 @@ test(copy_from_recovery_after_server_data_error) :-
 
 run_all_tests :-
     run_tests([pg_driver]).
+
+startup_message_parameters(Bytes, Parameters) :-
+    Bytes = [_Len3, _Len2, _Len1, _Len0,
+             _V3, _V2, _V1, _V0
+            | ParameterBytes],
+    startup_parameter_pairs(ParameterBytes, Parameters).
+
+startup_parameter_pairs([0], []) :- !.
+startup_parameter_pairs(Bytes, [Key-Value|Pairs]) :-
+    split_at_null(Bytes, KeyBytes, Rest1),
+    split_at_null(Rest1, ValueBytes, Rest2),
+    bytes_text(KeyBytes, Key),
+    bytes_text(ValueBytes, Value),
+    startup_parameter_pairs(Rest2, Pairs).
+
+split_at_null(Bytes, Before, After) :-
+    append(Before, [0|After], Bytes),
+    !.

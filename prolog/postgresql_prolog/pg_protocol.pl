@@ -75,18 +75,14 @@ ssl_request([0,0,0,8, 4,210,22,47]).
 
 startup_message(User, Database, Bytes) :-
     bytes_integer32(196608, Version),
-    text_bytes(user, UserKey),
-    text_bytes(User, UserBytes),
-    text_bytes(database, DatabaseKey),
-    text_bytes(Database, DatabaseBytes),
-    append(Version, UserKey, P0),
-    append(P0, [0], P1),
-    append(P1, UserBytes, P2),
-    append(P2, [0], P3),
-    append(P3, DatabaseKey, P4),
-    append(P4, [0], P5),
-    append(P5, DatabaseBytes, P6),
-    append(P6, [0,0], Payload),
+    startup_parameters_bytes(
+        [ user-User,
+          database-Database,
+          client_encoding-'UTF8'
+        ],
+        ParamsBytes
+    ),
+    append(Version, ParamsBytes, Payload),
     length(Payload, Len),
     Length is Len + 4,
     bytes_integer32(Length, LenBytes),
@@ -427,6 +423,17 @@ codes_bytes(Codes, Bytes) :-
 bytes_text(Bytes, Text) :-
     phrase(utf8_codes(Codes), Bytes),
     string_codes(Text, Codes).
+
+startup_parameters_bytes(Parameters, Bytes) :-
+    startup_parameters_bytes(Parameters, [0], Bytes).
+
+startup_parameters_bytes([], Tail, Tail).
+startup_parameters_bytes([Key-Value|Parameters], Tail, Bytes) :-
+    text_bytes(Key, KeyBytes),
+    text_bytes(Value, ValueBytes),
+    append(KeyBytes, [0|Rest1], Bytes),
+    append(ValueBytes, [0|Rest2], Rest1),
+    startup_parameters_bytes(Parameters, Tail, Rest2).
 
 bytes_integer32([B3,B2,B1,B0], Int) :-
     !,
