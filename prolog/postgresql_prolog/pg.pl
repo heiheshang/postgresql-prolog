@@ -179,20 +179,26 @@ throw_context_error(Context, Fields) :-
     throw(error(Error, _)).
 
 handle_simple_query_response(Msgs, Result) :-
-    (   member(error-Bytes, Msgs)
-    ->  parse_error_fields(Bytes, Fields),
-        Result = error(Fields)
-    ;   last_result_row_desc(Msgs, DescBytes)
-    ->  parse_row_description(DescBytes, Cols),
-        extract_result_rows(Cols, Msgs, Rows),
-        Result = data(Cols, Rows)
-    ;   last_cmd_complete(Msgs, CmdBytes)
-    ->  parse_command_complete(CmdBytes, Tag),
-        Result = ok(Tag)
-    ;   member(empty-_, Msgs)
-    ->  Result = ok
+    (   last_result_segment(Msgs, Segment)
+    ->  handle_result_segment(Segment, Result)
     ;   Result = unknown(Msgs)
     ).
+
+handle_result_segment(Segment, error(Fields)) :-
+    member(error-Bytes, Segment),
+    !,
+    parse_error_fields(Bytes, Fields).
+handle_result_segment(Segment, data(Cols, Rows)) :-
+    last_result_row_desc(Segment, DescBytes),
+    !,
+    parse_row_description(DescBytes, Cols),
+    extract_data(Cols, Segment, Rows).
+handle_result_segment(Segment, ok(Tag)) :-
+    last_cmd_complete(Segment, CmdBytes),
+    !,
+    parse_command_complete(CmdBytes, Tag).
+handle_result_segment(Segment, ok) :-
+    member(empty-_, Segment).
 
 extract_data(Cols, Msgs, Rows) :-
     findall(Row,
@@ -216,36 +222,46 @@ extract_result_rows(Cols, Msgs, Rows) :-
     extract_data(Cols, Segment, Rows).
 
 take_until_terminal([], []).
-take_until_terminal([cmd_complete-Bytes], [cmd_complete-Bytes]) :- !.
-take_until_terminal([error-Bytes], [error-Bytes]) :- !.
-take_until_terminal([empty-Bytes], [empty-Bytes]) :- !.
+take_until_terminal([Message|_], [Message]) :-
+    result_terminal_message(Message),
+    !.
 take_until_terminal([Message|Messages], [Message|Rest]) :-
     take_until_terminal(Messages, Rest).
 
 last_result_row_desc(Msgs, DescBytes) :-
-    findall(Bytes, member(row_desc-Bytes, Msgs), DescMessages),
-    last(DescMessages, DescBytes).
+    member(row_desc-DescBytes, Msgs).
 
 last_cmd_complete(Msgs, CmdBytes) :-
-    findall(Bytes, member(cmd_complete-Bytes, Msgs), CmdMessages),
-    last(CmdMessages, CmdBytes).
+    member(cmd_complete-CmdBytes, Msgs).
 
 last_result_segment(Msgs, Segment) :-
-    last_result_segment(Msgs, [], Segment).
+    last_result_segment(Msgs, none, Segment).
 
+last_result_segment([], none, _) :-
+    fail.
 last_result_segment([], Segment, Segment).
-last_result_segment([row_desc-_|Messages], _Current, Segment) :-
+last_result_segment([Message|Messages], _Current, Segment) :-
+    result_segment_start(Message),
     !,
-    take_until_terminal(Messages, Next),
-    drop_result_messages(Messages, Remaining),
+    take_until_terminal([Message|Messages], Next),
+    drop_result_messages([Message|Messages], Remaining),
     last_result_segment(Remaining, Next, Segment).
 last_result_segment([_|Messages], Current, Segment) :-
     last_result_segment(Messages, Current, Segment).
 
+result_segment_start(row_desc-_).
+result_segment_start(cmd_complete-_).
+result_segment_start(error-_).
+result_segment_start(empty-_).
+
+result_terminal_message(cmd_complete-_).
+result_terminal_message(error-_).
+result_terminal_message(empty-_).
+
 drop_result_messages([], []).
-drop_result_messages([cmd_complete-_|Messages], Messages) :- !.
-drop_result_messages([error-_|Messages], Messages) :- !.
-drop_result_messages([empty-_|Messages], Messages) :- !.
+drop_result_messages([Message|Messages], Messages) :-
+    result_terminal_message(Message),
+    !.
 drop_result_messages([_|Messages], Remaining) :-
     drop_result_messages(Messages, Remaining).
 
