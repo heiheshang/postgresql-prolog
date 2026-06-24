@@ -229,6 +229,35 @@ test(simple_query_multi_statement_returns_last_result) :-
         )
     ).
 
+test(simple_query_select_then_insert_returns_command_tag) :-
+    with_connection(
+        [Connection]>>(
+            pg_query(Connection, "CREATE TEMP TABLE pg_multi_insert(id int)", _),
+            pg_query(Connection,
+                     "SELECT 1 AS n; INSERT INTO pg_multi_insert VALUES (1)",
+                     Result),
+            assertion(Result == ok("INSERT 0 1"))
+        )
+    ).
+
+test(simple_query_create_then_select_returns_rows) :-
+    with_connection(
+        [Connection]>>(
+            pg_query(Connection,
+                     "CREATE TEMP TABLE pg_multi_select(id int); SELECT 1 AS n",
+                     Result),
+            assertion(Result = data([_], [[1]]))
+        )
+    ).
+
+test(simple_query_select_then_error_returns_error) :-
+    with_connection(
+        [Connection]>>(
+            pg_query(Connection, "SELECT 1 AS n; SELECT FROM", Result),
+            assertion(Result = error(_))
+        )
+    ).
+
 test(prepare_recovery_after_parse_error) :-
     with_connection(
         [Connection]>>(
