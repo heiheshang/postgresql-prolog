@@ -1,7 +1,8 @@
 :- module(pg_prepared, [
     pg_query_params/4,
     pg_prepare_statement/4,
-    pg_execute_statement/4
+    pg_execute_statement/4,
+    pg_forget_prepared_statements/1
 ]).
 
 :- use_module(library(apply)).
@@ -9,7 +10,7 @@
 :- use_module(library(postgresql_prolog/pg_session)).
 :- use_module(library(postgresql_prolog/pg_types)).
 
-:- dynamic
+:- thread_local
     prepared_statement/3.
 
 pg_query_params(Connection, SQL, Params, Result) :-
@@ -53,6 +54,9 @@ pg_execute_statement(Connection, Name, Params, Result) :-
     write_messages(Stream, [BindMsg, DescribeMsg, ExecuteMsg, SyncMsg]),
     pg_session_read_until_ready(Stream, Msgs),
     handle_query_response(Msgs, Result).
+
+pg_forget_prepared_statements(Stream) :-
+    retractall(prepared_statement(Stream, _, _)).
 
 unspecified_param_oids([], []).
 unspecified_param_oids([_|T], [0|Rest]) :-

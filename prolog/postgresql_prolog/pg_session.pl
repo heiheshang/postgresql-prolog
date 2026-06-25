@@ -25,7 +25,7 @@
 :- use_module(library(postgresql_prolog/pg_async)).
 :- use_module(library(postgresql_prolog/pg_protocol)).
 
-:- dynamic
+:- thread_local
     session_state/2.
 
 pg_session_open(Stream) :-
