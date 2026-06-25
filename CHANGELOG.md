@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.2
+
+Patch release that tightens protocol handling and improves release confidence.
+
+Highlights:
+
+- fix the UTF-8 startup encoding contract
+- fix simple-query result selection for multi-statement responses
+- fix `COPY FROM STDIN` recovery after negotiation and server-side failures
+- fix connection cleanup and transaction-state checks after errors
+- refactor `pg_protocol.pl` to express wire encoding/decoding via DCG-based binary helpers
+- add focused byte-level protocol tests alongside the existing integration suite
+
 ## 0.1.1
 
 Patch release that adds explicit `library(apply)` imports in `pg.pl` and

@@ -23,9 +23,11 @@ pg_receive_auth(Stream, User, Pass) :-
 
 handle_auth_method(_, _, ok, _, done) :- !.
 handle_auth_method(Stream, _, password, Pass, continue) :-
+    !,
     password_message(Pass, Msg),
     write_message(Stream, Msg).
 handle_auth_method(Stream, User, md5_salt(Salt), Pass, continue) :-
+    !,
     md5_password(User, Pass, Salt, Encrypted),
     password_message(Encrypted, Msg),
     write_message(Stream, Msg).

@@ -51,7 +51,7 @@ test-local-pg-md5:
 
 release:
 	@mkdir -p dist
-	@tar --exclude='./dist' --exclude='./coverage' --exclude-vcs -czf "$(RELEASE_FILE)" .
+	@git ls-files -z | tar --null -czf "$(RELEASE_FILE)" --files-from -
 	@printf 'Created %s\n' "$(RELEASE_FILE)"
 
 clean:
