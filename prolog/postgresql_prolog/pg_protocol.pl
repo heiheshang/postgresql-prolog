@@ -71,143 +71,103 @@ msg_type(portal_sus,    115).
 msg_type(notify,        65).
 msg_type(empty,         73).
 
-ssl_request([0,0,0,8, 4,210,22,47]).
+ssl_request(Bytes) :-
+    phrase((int32be(8), int32be(80877103)), Bytes).
 
 startup_message(User, Database, Bytes) :-
-    bytes_integer32(196608, Version),
-    startup_parameters_bytes(
-        [ user-User,
-          database-Database,
-          client_encoding-'UTF8'
-        ],
-        ParamsBytes
-    ),
-    append(Version, ParamsBytes, Payload),
-    length(Payload, Len),
-    Length is Len + 4,
-    bytes_integer32(Length, LenBytes),
-    append(LenBytes, Payload, Bytes).
+    build_startup_message(
+        (
+            int32be(196608),
+            startup_parameters(
+                [ user-User,
+                  database-Database,
+                  client_encoding-'UTF8'
+                ]
+            )
+        ),
+        Bytes
+    ).
 
 password_message(Password, Bytes) :-
-    text_bytes(Password, PassBytes),
-    length(PassBytes, PassLen),
-    TotalLen is PassLen + 5,
-    bytes_integer32(TotalLen, LenBytes),
-    append([112], LenBytes, Header),
-    append(Header, PassBytes, Temp),
-    append(Temp, [0], Bytes).
+    build_message(password, cstring(Password), Bytes).
 
 sasl_initial_response(Mechanism, ClientNonce, Bytes) :-
-    text_bytes(Mechanism, MechBytes),
-    length(MechBytes, MechLen),
-    ClientFirstBare = ClientNonce,
-    length(ClientFirstBare, CFBLen),
-    TotalLen is 4 + MechLen + 1 + 4 + CFBLen,
-    bytes_integer32(TotalLen, LenBytes),
-    append([112], LenBytes, Header),
-    append(Header, MechBytes, Part1),
-    append(Part1, [0], Part2),
-    bytes_integer32(CFBLen, CFBLenBytes),
-    append(Part2, CFBLenBytes, Part3),
-    append(Part3, ClientFirstBare, Bytes).
+    length(ClientNonce, ClientNonceLen),
+    build_message(
+        password,
+        (
+            cstring(Mechanism),
+            int32be(ClientNonceLen),
+            bytes(ClientNonce)
+        ),
+        Bytes
+    ).
 
 sasl_response(Data, Bytes) :-
-    length(Data, DataLen),
-    TotalLen is DataLen + 4,
-    bytes_integer32(TotalLen, LenBytes),
-    append([112], LenBytes, Header),
-    append(Header, Data, Bytes).
+    build_message(password, bytes(Data), Bytes).
 
 query_message(Query, Bytes) :-
-    text_bytes(Query, QBytes),
-    length(QBytes, QLen),
-    TotalLen is QLen + 5,
-    bytes_integer32(TotalLen, LenBytes),
-    append([81], LenBytes, Header),
-    append(Header, QBytes, Temp),
-    append(Temp, [0], Bytes).
+    build_message(query, cstring(Query), Bytes).
 
 copy_data_message(Data, Bytes) :-
-    length(Data, DataLen),
-    TotalLen is DataLen + 4,
-    bytes_integer32(TotalLen, LenBytes),
-    append([100], LenBytes, Header),
-    append(Header, Data, Bytes).
+    build_message(copy_data, bytes(Data), Bytes).
 
-copy_done_message([99, 0, 0, 0, 4]).
+copy_done_message(Bytes) :-
+    build_message(copy_done, [], Bytes).
 
 copy_fail_message(Message, Bytes) :-
-    text_bytes(Message, Data),
-    length(Data, DataLen),
-    TotalLen is DataLen + 5,
-    bytes_integer32(TotalLen, LenBytes),
-    append([102], LenBytes, Header),
-    append(Header, Data, Part1),
-    append(Part1, [0], Bytes).
+    build_message(copy_fail, cstring(Message), Bytes).
 
 parse_message(Name, Query, Oids, Bytes) :-
-    text_bytes(Name, NBytes),
-    text_bytes(Query, QBytes),
-    length(NBytes, NLen),
-    length(QBytes, QLen),
     length(Oids, NumOids),
-    bytes_integer16(NumOids, NumOidsBytes),
-    oids_bytes(Oids, OidsBytes),
-    TotalLen is 4 + NLen + 1 + QLen + 1 + 2 + (NumOids * 4),
-    bytes_integer32(TotalLen, LenBytes),
-    append([80], LenBytes, Header),
-    append(Header, NBytes, Part1),
-    append(Part1, [0], Part2),
-    append(Part2, QBytes, Part3),
-    append(Part3, [0], Part4),
-    append(Part4, NumOidsBytes, Part5),
-    append(Part5, OidsBytes, Bytes).
+    build_message(
+        parse,
+        (
+            cstring(Name),
+            cstring(Query),
+            int16be(NumOids),
+            oids(Oids)
+        ),
+        Bytes
+    ).
 
 bind_message(Portal, Statement, Formats, Values, ResultFormats, Bytes) :-
-    text_bytes(Portal, PBytes),
-    text_bytes(Statement, SBytes),
-    length(PBytes, PLen),
-    length(SBytes, SLen),
     length(Formats, NumFormats),
-    bytes_integer16(NumFormats, NumFormatsBytes),
-    formats_bytes(Formats, FormatsBytes),
     length(Values, NumValues),
-    bytes_integer16(NumValues, NumValuesBytes),
-    values_bytes(Values, ValuesBytes),
     length(ResultFormats, NumResFormats),
-    bytes_integer16(NumResFormats, NumResFormatsBytes),
-    formats_bytes(ResultFormats, ResFormatsBytes),
-    length(FormatsBytes, FormatsLen),
-    length(ValuesBytes, ValuesLen),
-    length(ResFormatsBytes, ResFormatsLen),
-    TotalLen is 4 + PLen + 1 + SLen + 1 + 2 + FormatsLen + 2 + ValuesLen + 2 + ResFormatsLen,
-    bytes_integer32(TotalLen, LenBytes),
-    append([66], LenBytes, Header),
-    append(Header, PBytes, Part1),
-    append(Part1, [0], Part2),
-    append(Part2, SBytes, Part3),
-    append(Part3, [0], Part4),
-    append(Part4, NumFormatsBytes, Part5),
-    append(Part5, FormatsBytes, Part6),
-    append(Part6, NumValuesBytes, Part7),
-    append(Part7, ValuesBytes, Part8),
-    append(Part8, NumResFormatsBytes, Part9),
-    append(Part9, ResFormatsBytes, Bytes).
+    build_message(
+        bind,
+        (
+            cstring(Portal),
+            cstring(Statement),
+            int16be(NumFormats),
+            formats(Formats),
+            int16be(NumValues),
+            values(Values),
+            int16be(NumResFormats),
+            formats(ResultFormats)
+        ),
+        Bytes
+    ).
 
 execute_message(Portal, MaxRows, Bytes) :-
-    text_bytes(Portal, PBytes),
-    length(PBytes, PLen),
-    bytes_integer32(MaxRows, MaxRowsBytes),
-    TotalLen is 4 + PLen + 1 + 4,
-    bytes_integer32(TotalLen, LenBytes),
-    append([69], LenBytes, Header),
-    append(Header, PBytes, Temp),
-    append(Temp, [0], Temp2),
-    append(Temp2, MaxRowsBytes, Bytes).
+    build_message(
+        execute,
+        (
+            cstring(Portal),
+            int32be(MaxRows)
+        ),
+        Bytes
+    ).
 
-sync_message([83, 0, 0, 0, 4]).
-flush_message([72, 0, 0, 0, 4]).
-terminate_message([88, 0, 0, 0, 4]).
+sync_message(Bytes) :-
+    build_message(sync, [], Bytes).
+
+flush_message(Bytes) :-
+    build_message(flush, [], Bytes).
+
+terminate_message(Bytes) :-
+    build_message(terminate, [], Bytes).
 
 read_message(Stream, Msg) :-
     get_byte(Stream, TypeByte),
@@ -234,26 +194,26 @@ write_messages(Stream, Messages) :-
     flush_output(Stream).
 
 describe_message(Type, Name, Bytes) :-
-    (Type = statement -> T = 83; T = 80),
-    text_bytes(Name, NBytes),
-    length(NBytes, NLen),
-    TotalLen is 4 + 1 + NLen + 1,
-    bytes_integer32(TotalLen, LenBytes),
-    append([68], LenBytes, Header),
-    append(Header, [T], Part1),
-    append(Part1, NBytes, Part2),
-    append(Part2, [0], Bytes).
+    close_describe_type_byte(Type, T),
+    build_message(
+        describe,
+        (
+            byte(T),
+            cstring(Name)
+        ),
+        Bytes
+    ).
 
 close_message(Type, Name, Bytes) :-
-    (Type = statement -> T = 83; T = 80),
-    text_bytes(Name, NBytes),
-    length(NBytes, NLen),
-    TotalLen is 4 + 1 + NLen + 1,
-    bytes_integer32(TotalLen, LenBytes),
-    append([67], LenBytes, Header),
-    append(Header, [T], Part1),
-    append(Part1, NBytes, Part2),
-    append(Part2, [0], Bytes).
+    close_describe_type_byte(Type, T),
+    build_message(
+        close,
+        (
+            byte(T),
+            cstring(Name)
+        ),
+        Bytes
+    ).
 
 parse_message_type([TypeByte|Rest], Type-Rest) :-
     parse_server_message_type(TypeByte, Type).
@@ -292,35 +252,31 @@ parse_authentication(Bytes, Method) :-
     ).
 
 parse_parameter_status(Bytes, Key-Value) :-
-    split_null(Bytes, KeyBytes, Rest),
-    split_null(Rest, ValueBytes, _),
-    bytes_text(KeyBytes, Key),
-    bytes_text(ValueBytes, Value).
+    once(phrase((cstring(Key), cstring(Value)), Bytes)).
 
 parse_backend_key([B3,B2,B1,B0|Rest], PID, Secret) :-
     bytes_integer32([B3,B2,B1,B0], PID),
     Rest = [S3,S2,S1,S0|_],
     bytes_integer32([S3,S2,S1,S0], Secret).
 
-parse_notification([P3,P2,P1,P0|Rest], notification{
+parse_notification(Bytes, notification{
                        pid: PID,
                        channel: Channel,
                        payload: Payload
                    }) :-
-    bytes_integer32([P3,P2,P1,P0], PID),
-    split_null(Rest, ChannelBytes, Rest1),
-    split_null(Rest1, PayloadBytes, _),
-    bytes_text(ChannelBytes, Channel),
-    bytes_text(PayloadBytes, Payload).
+    once(
+        phrase(
+            (
+                int32be(PID),
+                cstring(Channel),
+                cstring(Payload)
+            ),
+            Bytes
+        )
+    ).
 
 parse_error_fields(Bytes, Fields) :-
-    parse_fields(Bytes, [], Fields).
-
-parse_fields([0], Acc, Acc) :- !.
-parse_fields([Type|Bytes], Acc, Fields) :-
-    split_null(Bytes, ValueBytes, Rest),
-    bytes_text(ValueBytes, Value),
-    parse_fields(Rest, [Type-Value|Acc], Fields).
+    once(phrase(error_fields(Fields), Bytes)).
 
 parse_notice(Bytes, Fields) :-
     parse_error_fields(Bytes, Fields).
@@ -329,81 +285,27 @@ parse_ready_for_query([StatusByte], Status) :-
     parse_tx_status(StatusByte, Status).
 
 parse_command_complete(Bytes, Tag) :-
-    split_null(Bytes, TagBytes, _),
-    bytes_text(TagBytes, Tag).
+    once(phrase(cstring(Tag), Bytes)).
 
-parse_copy_response([FormatByte, C1, C0|Rest], copy_response{
+parse_copy_response(Bytes, copy_response{
                         format: Format,
                         column_formats: ColumnFormats
                     }) :-
-    parse_copy_format(FormatByte, Format),
-    bytes_integer16([C1, C0], NumColumns),
-    parse_copy_column_formats(NumColumns, Rest, ColumnFormats).
+    once(phrase(copy_response(Format, ColumnFormats), Bytes)).
 
 parse_row_description(Bytes, Columns) :-
-    Bytes = [B1,B0|Rest],
-    bytes_integer16([B1,B0], NumFields),
-    parse_fields_desc(NumFields, Rest, Columns).
-
-parse_fields_desc(0, _, []) :- !.
-parse_fields_desc(N, Bytes, [Col|Cols]) :-
-    split_null(Bytes, NameBytes, Rest1),
-    bytes_text(NameBytes, Name),
-    Rest1 = [
-        T3,T2,T1,T0,
-        TB1,TB0,
-        A3,A2,A1,A0,
-        TS1,TS0,
-        TM3,TM2,TM1,TM0,
-        Fmt1,Fmt0
-    |Rest2],
-    bytes_integer32([T3,T2,T1,T0], TableOID),
-    bytes_integer16([TB1,TB0], TableColNo),
-    bytes_integer32([A3,A2,A1,A0], TypeOID),
-    bytes_integer16([TS1,TS0], TypeSize),
-    bytes_integer32([TM3,TM2,TM1,TM0], TypeMod),
-    bytes_integer16([Fmt1,Fmt0], Format),
-    N1 is N - 1,
-    Col = col{
-        name: Name,
-        table_oid: TableOID,
-        column: TableColNo,
-        type_oid: TypeOID,
-        type_size: TypeSize,
-        type_mod: TypeMod,
-        format: Format
-    },
-    parse_fields_desc(N1, Rest2, Cols).
+    once(phrase(row_description(Columns), Bytes)).
 
 parse_data_row(Bytes, Values) :-
-    Bytes = [B1,B0|Rest],
-    bytes_integer16([B1,B0], NumFields),
-    parse_values(NumFields, Rest, Values).
+    once(phrase(data_row(Values), Bytes)).
 
-parse_values(0, _, []) :- !.
-parse_values(N, [M3,M2,M1,M0|Rest], [Value|Values]) :-
-    (   [M3,M2,M1,M0] = [255,255,255,255]
-    ->  Value = null,
-        Rest1 = Rest
-    ;   bytes_integer32([M3,M2,M1,M0], Length),
-        Length >= 0
-    ->  length(ValueBytes, Length),
-        append(ValueBytes, Rest1, Rest),
-        Value = data(ValueBytes)
-    ),
-    N1 is N - 1,
-    parse_values(N1, Rest1, Values).
-
-parse_copy_column_formats(0, [], []) :- !.
-parse_copy_column_formats(N, [F1,F0|Rest], [Format|Formats]) :-
-    N > 0,
-    bytes_integer16([F1, F0], FormatCode),
-    parse_copy_format(FormatCode, Format),
-    N1 is N - 1,
-    parse_copy_column_formats(N1, Rest, Formats).
-
-split_null(Bytes, Before, After) :-
-    append(Before, [0|After], Bytes), !.
+parse_copy_column_formats(0, []) -->
+    [].
+parse_copy_column_formats(N, [Format|Formats]) -->
+    { N > 0 },
+    copy_format(Format),
+    { N1 is N - 1 },
+    parse_copy_column_formats(N1, Formats).
 
 text_bytes(Text, Bytes) :-
     atom(Text), !,
@@ -425,15 +327,7 @@ bytes_text(Bytes, Text) :-
     string_codes(Text, Codes).
 
 startup_parameters_bytes(Parameters, Bytes) :-
-    startup_parameters_bytes(Parameters, [0], Bytes).
-
-startup_parameters_bytes([], Tail, Tail).
-startup_parameters_bytes([Key-Value|Parameters], Tail, Bytes) :-
-    text_bytes(Key, KeyBytes),
-    text_bytes(Value, ValueBytes),
-    append(KeyBytes, [0|Rest1], Bytes),
-    append(ValueBytes, [0|Rest2], Rest1),
-    startup_parameters_bytes(Parameters, Tail, Rest2).
+    phrase(startup_parameters(Parameters), Bytes).
 
 bytes_integer32([B3,B2,B1,B0], Int) :-
     !,
@@ -455,34 +349,17 @@ bytes_integer16(Int, [B1,B0]) :-
     B1 is (Int >> 8) /\ 255,
     B0 is Int /\ 255.
 
-oids_bytes([], []).
-oids_bytes([Oid|Oids], Bytes) :-
-    bytes_integer32(Oid, OidBytes),
-    oids_bytes(Oids, Rest),
-    append(OidBytes, Rest, Bytes).
+oids_bytes(Oids, Bytes) :-
+    phrase(oids(Oids), Bytes).
 
-formats_bytes([], []).
-formats_bytes([Fmt|Fmts], [B1,B0|Rest]) :-
-    bytes_integer16(Fmt, [B1,B0]),
-    formats_bytes(Fmts, Rest).
+formats_bytes(Formats, Bytes) :-
+    phrase(formats(Formats), Bytes).
 
-values_bytes([], []).
-values_bytes([Value|Values], Bytes) :-
-    value_bytes(Value, ValueBytes),
-    values_bytes(Values, Rest),
-    append(ValueBytes, Rest, Bytes).
+values_bytes(Values, Bytes) :-
+    phrase(values(Values), Bytes).
 
-value_bytes(null, [255,255,255,255]).
-value_bytes(text(Atom), Bytes) :-
-    text_bytes(Atom, Data),
-    length(Data, Len),
-    bytes_integer32(Len, LenBytes),
-    append(LenBytes, Data, Bytes).
-value_bytes(binary(Bin), Bytes) :-
-    is_list(Bin),
-    length(Bin, Len),
-    bytes_integer32(Len, LenBytes),
-    append(LenBytes, Bin, Bytes).
+value_bytes(Value, Bytes) :-
+    phrase(bind_value(Value), Bytes).
 
 read_n_bytes(_, 0, []) :- !.
 read_n_bytes(_, N, _) :-
@@ -500,6 +377,205 @@ read_n_bytes(Stream, N, [B|Bs]) :-
 
 put_bytes_no_flush(Stream, Bytes) :-
     forall(member(B, Bytes), put_byte(Stream, B)).
+
+build_message(Type, PayloadGrammar, Bytes) :-
+    msg_type(Type, TypeByte),
+    phrase(PayloadGrammar, Payload),
+    length(Payload, PayloadLen),
+    TotalLen is PayloadLen + 4,
+    phrase((byte(TypeByte), int32be(TotalLen), bytes(Payload)), Bytes).
+
+build_startup_message(PayloadGrammar, Bytes) :-
+    phrase(PayloadGrammar, Payload),
+    length(Payload, PayloadLen),
+    TotalLen is PayloadLen + 4,
+    phrase((int32be(TotalLen), bytes(Payload)), Bytes).
+
+close_describe_type_byte(statement, 83).
+close_describe_type_byte(_, 80).
+
+byte(Byte) --> [Byte].
+
+int16be(Int) -->
+    [B1, B0],
+    { integer16_bytes(Int, [B1, B0]) }.
+
+int32be(Int) -->
+    [B3, B2, B1, B0],
+    { integer32_bytes(Int, [B3, B2, B1, B0]) }.
+
+bytes([]) --> [].
+bytes([Byte|Rest]) -->
+    [Byte],
+    bytes(Rest).
+
+cstring(Text) -->
+    { (   nonvar(Text)
+      ->  Mode = generate(Text)
+      ;   Mode = parse(Text)
+      )
+    },
+    cstring_mode(Mode).
+
+cstring_mode(generate(Text)) -->
+    cstring_text(Text).
+cstring_mode(parse(Text)) -->
+    cstring_parsed_text(Text).
+
+cstring_text(Text) -->
+    { text_bytes(Text, TextBytes) },
+    bytes(TextBytes),
+    [0].
+
+cstring_parsed_text(Text) -->
+    cstring_bytes(TextBytes),
+    [0],
+    { bytes_text(TextBytes, Text) }.
+
+cstring_bytes([]) -->
+    peek_byte(0).
+cstring_bytes(Bytes) -->
+    peek_byte(Byte),
+    { Byte =\= 0,
+      Bytes = [Byte|Rest]
+    },
+    [Byte],
+    cstring_bytes(Rest).
+
+peek_byte(Byte, [Byte|Rest], [Byte|Rest]).
+peek_bytes4(B3, B2, B1, B0, [B3, B2, B1, B0|Rest], [B3, B2, B1, B0|Rest]).
+
+startup_parameters([]) -->
+    [0].
+startup_parameters([Key-Value|Parameters]) -->
+    cstring(Key),
+    cstring(Value),
+    startup_parameters(Parameters).
+
+oids([]) --> [].
+oids([Oid|Oids]) -->
+    int32be(Oid),
+    oids(Oids).
+
+formats([]) --> [].
+formats([Format|Formats]) -->
+    int16be(Format),
+    formats(Formats).
+
+values([]) --> [].
+values([Value|Values]) -->
+    bind_value(Value),
+    values(Values).
+
+bind_value(null) -->
+    [255, 255, 255, 255].
+bind_value(text(Text)) -->
+    { text_bytes(Text, Data),
+      length(Data, Len)
+    },
+    int32be(Len),
+    bytes(Data).
+bind_value(binary(Data)) -->
+    { is_list(Data),
+      length(Data, Len)
+    },
+    int32be(Len),
+    bytes(Data).
+
+error_fields(Fields) -->
+    error_fields([], Fields).
+
+error_fields(Acc, Fields) -->
+    peek_byte(Type),
+    error_fields_dispatch(Type, Acc, Fields).
+
+error_fields_dispatch(0, Acc, Fields) -->
+    [0],
+    { Fields = Acc }.
+error_fields_dispatch(Type, Acc, Fields) -->
+    [Type],
+    cstring(Value),
+    { Acc1 = [Type-Value|Acc] },
+    error_fields(Acc1, Fields).
+
+row_description(Columns) -->
+    int16be(NumFields),
+    row_description_columns(NumFields, Columns).
+
+row_description_columns(0, []) -->
+    [].
+row_description_columns(N, [Column|Columns]) -->
+    row_description_column(Column),
+    { N1 is N - 1 },
+    row_description_columns(N1, Columns).
+
+row_description_column(col{
+        name: Name,
+        table_oid: TableOID,
+        column: TableColNo,
+        type_oid: TypeOID,
+        type_size: TypeSize,
+        type_mod: TypeMod,
+        format: Format
+    }) -->
+    cstring(Name),
+    int32be(TableOID),
+    int16be(TableColNo),
+    int32be(TypeOID),
+    int16be(TypeSize),
+    int32be(TypeMod),
+    int16be(Format).
+
+data_row(Values) -->
+    int16be(NumFields),
+    data_row_values(NumFields, Values).
+
+data_row_values(0, []) -->
+    [].
+data_row_values(N, [Value|Values]) -->
+    data_row_value(Value),
+    { N1 is N - 1 },
+    data_row_values(N1, Values).
+
+data_row_value(Value) -->
+    peek_bytes4(B3, B2, B1, B0),
+    data_row_value_dispatch(B3, B2, B1, B0, Value).
+
+data_row_value_dispatch(255, 255, 255, 255, null) -->
+    [255, 255, 255, 255].
+data_row_value_dispatch(B3, B2, B1, B0, data(ValueBytes)) -->
+    [B3, B2, B1, B0],
+    { bytes_integer32([B3, B2, B1, B0], Length),
+      Length >= 0,
+      Length =\= 4294967295,
+      length(ValueBytes, Length)
+    },
+    bytes(ValueBytes).
+
+copy_response(Format, ColumnFormats) -->
+    copy_format_byte(Format),
+    int16be(NumColumns),
+    parse_copy_column_formats(NumColumns, ColumnFormats).
+
+copy_format_byte(Format) -->
+    byte(FormatCode),
+    { parse_copy_format(FormatCode, Format) }.
+
+copy_format(Format) -->
+    int16be(FormatCode),
+    { parse_copy_format(FormatCode, Format) }.
+
+integer16_bytes(Int, Bytes) :-
+    (   integer(Int)
+    ->  bytes_integer16(Int, Bytes)
+    ;   bytes_integer16(Bytes, Int)
+    ).
+
+integer32_bytes(Int, Bytes) :-
+    (   integer(Int)
+    ->  bytes_integer32(Int, Bytes)
+    ;   bytes_integer32(Bytes, Int)
+    ).
 
 parse_tx_status(73, idle) :- !.
 parse_tx_status(84, in_transaction) :- !.
