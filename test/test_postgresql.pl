@@ -82,6 +82,92 @@ test(startup_message_sets_client_encoding_utf8) :-
     assertion(member("database"-"example_db", Parameters)),
     assertion(member("client_encoding"-"UTF8", Parameters)).
 
+test(parse_message_encodes_named_statement_and_oids) :-
+    parse_message("stmt", "SELECT $1", [23, 25], Bytes),
+    assertion(Bytes == [
+        80, 0, 0, 0, 29,
+        115, 116, 109, 116, 0,
+        83, 69, 76, 69, 67, 84, 32, 36, 49, 0,
+        0, 2,
+        0, 0, 0, 23,
+        0, 0, 0, 25
+    ]).
+
+test(bind_message_encodes_formats_values_and_result_formats) :-
+    bind_message("p", "s", [0, 1], [text("x"), null, binary([1, 2])], [1], Bytes),
+    assertion(Bytes == [
+        66, 0, 0, 0, 35,
+        112, 0,
+        115, 0,
+        0, 2,
+        0, 0, 0, 1,
+        0, 3,
+        0, 0, 0, 1, 120,
+        255, 255, 255, 255,
+        0, 0, 0, 2, 1, 2,
+        0, 1,
+        0, 1
+    ]).
+
+test(execute_message_encodes_portal_and_max_rows) :-
+    execute_message("portal", 10, Bytes),
+    assertion(Bytes == [
+        69, 0, 0, 0, 15,
+        112, 111, 114, 116, 97, 108, 0,
+        0, 0, 0, 10
+    ]).
+
+test(sync_flush_and_terminate_messages_use_empty_payload_frames) :-
+    sync_message(SyncBytes),
+    flush_message(FlushBytes),
+    terminate_message(TerminateBytes),
+    assertion(SyncBytes == [83, 0, 0, 0, 4]),
+    assertion(FlushBytes == [72, 0, 0, 0, 4]),
+    assertion(TerminateBytes == [88, 0, 0, 0, 4]).
+
+test(parse_error_fields_preserves_existing_reverse_accumulator_order) :-
+    parse_error_fields([77, 111, 111, 112, 115, 0, 67, 50, 51, 53, 48, 53, 0, 0], Fields),
+    assertion(Fields == [67-"23505", 77-"oops"]).
+
+test(parse_copy_response_decodes_overall_and_column_formats) :-
+    parse_copy_response([0, 0, 2, 0, 0, 0, 1], Response),
+    assertion(Response == copy_response{
+        format: text,
+        column_formats: [text, binary]
+    }).
+
+test(parse_row_description_decodes_column_metadata) :-
+    parse_row_description(
+        [0, 1,
+         110, 0,
+         0, 0, 0, 1,
+         0, 2,
+         0, 0, 0, 23,
+         0, 4,
+         0, 0, 0, 5,
+         0, 0],
+        Columns
+    ),
+    assertion(Columns == [col{
+        name: "n",
+        table_oid: 1,
+        column: 2,
+        type_oid: 23,
+        type_size: 4,
+        type_mod: 5,
+        format: 0
+    }]).
+
+test(parse_data_row_decodes_data_and_null_fields) :-
+    parse_data_row(
+        [0, 3,
+         0, 0, 0, 1, 97,
+         255, 255, 255, 255,
+         0, 0, 0, 0],
+        Values
+    ),
+    assertion(Values == [data([97]), null, data([])]).
+
 test(empty_query) :-
     with_connection(
         [Connection]>>(
