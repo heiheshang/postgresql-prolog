@@ -63,6 +63,18 @@ test(connect_success) :-
         [Connection]>>assertion(Connection = pg_conn(_, _, _, _))
     ).
 
+test(connect_failure_cleans_session_state) :-
+    connection_options(Host, Port, Options),
+    catch(
+        pg_connect(Host:Port,
+                   _,
+                   [database("pg_driver_missing_db_for_cleanup_test")|Options]),
+        Error,
+        true
+    ),
+    assertion(nonvar(Error)),
+    assertion(\+ pg_session:session_state(_, _)).
+
 test(startup_message_sets_client_encoding_utf8) :-
     startup_message("alice", "example_db", Bytes),
     startup_message_parameters(Bytes, Parameters),
@@ -183,6 +195,39 @@ test(transaction_rollback_on_exception) :-
             assertion(Result = data([_], [[0]]))
         )
     ).
+
+test(transaction_commit_failure_throws_and_rolls_back) :-
+    with_connection(
+        [Connection]>>(
+            pg_query(Connection,
+                     "CREATE TEMP TABLE pg_tx_commit_fail(id int UNIQUE DEFERRABLE INITIALLY DEFERRED)",
+                     _),
+            catch(
+                pg_transaction(Connection,
+                    (
+                        pg_query(Connection, "INSERT INTO pg_tx_commit_fail VALUES (1)", _),
+                        pg_query(Connection, "INSERT INTO pg_tx_commit_fail VALUES (1)", _)
+                    )),
+                Error,
+                true
+            ),
+            assertion(Error = error(pg_transaction_commit(_), _)),
+            pg_query(Connection, "SELECT count(*) AS n FROM pg_tx_commit_fail", Result),
+            assertion(Result = data([_], [[0]]))
+        )
+    ).
+
+test(disconnect_cleans_prepared_state) :-
+    setup_call_cleanup(
+        connect_test_db(Connection),
+        once((
+            Connection = pg_conn(Stream, _, _, _),
+            pg_prepare(Connection, cleanup_stmt, "SELECT 1 AS n", []),
+            assertion(pg_prepared:prepared_statement(Stream, cleanup_stmt, []))
+        )),
+        pg_disconnect(Connection)
+    ),
+    assertion(\+ pg_prepared:prepared_statement(_, _, _)).
 
 test(command_complete) :-
     with_connection(

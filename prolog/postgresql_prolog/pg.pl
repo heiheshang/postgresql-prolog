@@ -49,18 +49,20 @@ pg_connect(Host:Port, Connection, Options) :-
     ->  throw(error(not_implemented(ssl), _))
     ;   true
     ),
-    tcp_socket(Socket),
-    tcp_connect(Socket, Host:Port, Stream),
-    set_stream(Stream, type(binary)),
-    set_stream(Stream, encoding(octet)),
-    init_connection(Stream, User, Pass, DB, Connection).
+    setup_call_catcher_cleanup(
+        open_connection_stream(Host, Port, Stream),
+        init_connection(Stream, User, Pass, DB, Connection),
+        Catcher,
+        cleanup_failed_connect(Catcher, Stream)
+    ).
 
 pg_disconnect(Connection) :-
     get_connection_stream(Connection, Stream),
-    terminate_message(Msg),
-    write_message(Stream, Msg),
-    pg_session_close(Stream),
-    close(Stream).
+    setup_call_cleanup(
+        true,
+        send_terminate_message(Stream),
+        cleanup_connection_stream(Stream)
+    ).
 
 pg_query(Connection, SQL, Result) :-
     pg_query(Connection, SQL, [], Result).
@@ -81,9 +83,14 @@ pg_execute(Connection, Name, Result) :-
     pg_prepared:pg_execute_statement(Connection, Name, [], Result).
 
 pg_transaction(Connection, Goal) :-
-    pg_query(Connection, "BEGIN", _),
-    catch(call(Goal), Error, (pg_query(Connection, "ROLLBACK", _), throw(Error))),
-    pg_query(Connection, "COMMIT", _).
+    pg_query(Connection, "BEGIN", BeginResult),
+    ensure_command_success(BeginResult, pg_transaction_begin),
+    setup_call_catcher_cleanup(
+        true,
+        once(call(Goal)),
+        Catcher,
+        finish_transaction(Connection, Catcher)
+    ).
 
 pg_listen(Connection, Channel, Handler) :-
     get_connection_stream(Connection, Stream),
@@ -151,6 +158,45 @@ init_connection(Stream, User, Pass, DB, pg_conn(Stream, PID, Secret, Params)) :-
     pg_session_get(Stream, Session),
     Secret = Session.cancel_secret,
     Params = Session.server_params.
+
+open_connection_stream(Host, Port, Stream) :-
+    tcp_socket(Socket),
+    tcp_connect(Socket, Host:Port, Stream),
+    set_stream(Stream, type(binary)),
+    set_stream(Stream, encoding(octet)).
+
+cleanup_failed_connect(exit, _) :-
+    !.
+cleanup_failed_connect(_, Stream) :-
+    cleanup_connection_state(Stream),
+    close(Stream, [force(true)]).
+
+send_terminate_message(Stream) :-
+    terminate_message(Msg),
+    write_message(Stream, Msg).
+
+cleanup_connection_stream(Stream) :-
+    cleanup_connection_state(Stream),
+    close(Stream, [force(true)]).
+
+cleanup_connection_state(Stream) :-
+    pg_prepared:pg_forget_prepared_statements(Stream),
+    pg_session_close(Stream).
+
+finish_transaction(Connection, exit) :-
+    !,
+    pg_query(Connection, "COMMIT", CommitResult),
+    ensure_command_success(CommitResult, pg_transaction_commit).
+finish_transaction(Connection, exception(Error)) :-
+    !,
+    rollback_transaction(Connection),
+    throw(Error).
+finish_transaction(Connection, _) :-
+    rollback_transaction(Connection).
+
+rollback_transaction(Connection) :-
+    pg_query(Connection, "ROLLBACK", RollbackResult),
+    ensure_command_success(RollbackResult, pg_transaction_rollback).
 
 simple_query(Connection, SQL, Result) :-
     get_connection_stream(Connection, Stream),
