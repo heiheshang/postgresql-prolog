@@ -408,6 +408,39 @@ test(copy_from_recovery_after_server_data_error) :-
         )
     ).
 
+test(copy_from_binary_format_recovery) :-
+    with_connection(
+        [Connection]>>(
+            pg_query(Connection, "CREATE TEMP TABLE pg_copy_binary(id int, value text)", _),
+            catch(
+                pg_copy_from(Connection,
+                             "COPY pg_copy_binary (id, value) FROM STDIN WITH (FORMAT binary)",
+                             "1\talpha\n"),
+                Error,
+                true
+            ),
+            assertion(Error = error(not_implemented(copy_format(_)), _)),
+            pg_query(Connection, "SELECT 1 AS n", Result),
+            assertion(Result = data([_], [[1]]))
+        )
+    ).
+
+test(copy_from_recovery_after_unexpected_start_response) :-
+    with_connection(
+        [Connection]>>(
+            catch(
+                pg_copy_from(Connection,
+                             "SELECT 1 AS n",
+                             "1\talpha\n"),
+                Error,
+                true
+            ),
+            assertion(Error = error(protocol_error(unexpected_copy_start_message(_)), _)),
+            pg_query(Connection, "SELECT 1 AS n", Result),
+            assertion(Result = data([_], [[1]]))
+        )
+    ).
+
 :- end_tests(pg_driver).
 
 run_all_tests :-

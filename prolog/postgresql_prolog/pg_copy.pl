@@ -11,15 +11,16 @@
 pg_copy_from(Connection, SQL, Data) :-
     get_connection_stream(Connection, Stream),
     start_copy_in(Stream, SQL, CopyResponse),
-    ensure_text_copy(CopyResponse),
-    catch(
-        send_copy_data_and_finish(Stream, Data),
-        Error,
-        (
-            abort_copy_if_needed(Stream, Error),
-            throw(Error)
-        )
+    setup_call_catcher_cleanup(
+        true,
+        run_copy_in(Stream, CopyResponse, Data),
+        Catcher,
+        cleanup_copy_in(Stream, Catcher)
     ).
+
+run_copy_in(Stream, CopyResponse, Data) :-
+    ensure_text_copy(CopyResponse),
+    send_copy_data_and_finish(Stream, Data).
 
 start_copy_in(Stream, SQL, CopyResponse) :-
     pg_session_prepare_command(Stream, copy_in),
@@ -29,16 +30,32 @@ start_copy_in(Stream, SQL, CopyResponse) :-
 
 await_copy_start(Stream, CopyResponse) :-
     read_message(Stream, Msg),
-    (   handle_session_side_message(Stream, Msg)
-    ->  await_copy_start(Stream, CopyResponse)
-    ;   Msg = copy_in-Bytes
-    ->  parse_copy_response(Bytes, CopyResponse)
-    ;   Msg = error-Bytes
-    ->  pg_session_read_until_ready(Stream, Tail),
-        parse_error_fields(Bytes, Fields),
-        throw(error(pg_copy_error([error-Bytes|Tail], Fields), _))
-    ;   throw(error(protocol_error(unexpected_copy_start_message(Msg)), _))
-    ).
+    await_copy_start_message(Stream, Msg, CopyResponse).
+
+await_copy_start_message(Stream, Msg, CopyResponse) :-
+    handle_session_side_message(Stream, Msg),
+    !,
+    await_copy_start(Stream, CopyResponse).
+await_copy_start_message(_Stream, copy_in-Bytes, CopyResponse) :-
+    !,
+    parse_copy_response(Bytes, CopyResponse).
+await_copy_start_message(Stream, error-Bytes, _CopyResponse) :-
+    !,
+    pg_session_read_until_ready(Stream, Tail),
+    parse_error_fields(Bytes, Fields),
+    throw(error(pg_copy_error([error-Bytes|Tail], Fields), _)).
+await_copy_start_message(Stream, Msg, _CopyResponse) :-
+    recover_unexpected_copy_start(Stream, Msg),
+    throw(error(protocol_error(unexpected_copy_start_message(Msg)), _)).
+
+recover_unexpected_copy_start(Stream, ready-Bytes) :-
+    !,
+    parse_ready_for_query(Bytes, TxStatus),
+    pg_session_set_tx_status(Stream, TxStatus),
+    pg_session_set_phase(Stream, ready),
+    pg_session_clear_sync_required(Stream).
+recover_unexpected_copy_start(Stream, _Msg) :-
+    pg_session_read_until_ready(Stream, _).
 
 ensure_text_copy(copy_response{format: text, column_formats: ColumnFormats}) :-
     forall(member(Format, ColumnFormats), Format == text),
@@ -59,13 +76,24 @@ send_copy_chunks(Stream, [Chunk|Chunks]) :-
     maybe_finish_copy_after_server_error(Stream),
     send_copy_chunks(Stream, Chunks).
 
-abort_copy_if_needed(_Stream, error(pg_copy_error(_, _), _)) :-
+cleanup_copy_in(_Stream, exit) :-
     !.
-abort_copy_if_needed(Stream, Error) :-
-    abort_copy(Stream, Error).
+cleanup_copy_in(Stream, Catcher) :-
+    pg_session_get(Stream, Session),
+    (   Session.phase == copy_in
+    ->  abort_copy(Stream, Catcher)
+    ;   true
+    ).
 
-abort_copy(Stream, Error) :-
+abort_copy(Stream, exception(Error)) :-
+    !,
     message_to_string(Error, Message),
+    abort_copy_with_message(Stream, Message).
+abort_copy(Stream, _Catcher) :-
+    Message = "COPY aborted",
+    abort_copy_with_message(Stream, Message).
+
+abort_copy_with_message(Stream, Message) :-
     copy_fail_message(Message, FailMsg),
     catch(write_message(Stream, FailMsg), _, true),
     catch(pg_session_read_until_ready(Stream, _), _, true).
