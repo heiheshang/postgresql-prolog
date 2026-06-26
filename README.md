@@ -234,6 +234,8 @@ make test
 make coverage
 make test-local-pg
 make test-local-pg-md5
+make profile-row-decode
+make profile-row-decode-md5
 make release
 ```
 
@@ -248,6 +250,18 @@ TEST_PG_AUTH=md5 TEST_PG_PASSWORD=md5pass make test-local-pg
 `make test-local-pg` starts a disposable local PostgreSQL instance. In `trust` mode the generated `.test-pg/env.sh` omits `PGPASSWORD`. In `md5` mode it exports `PGPASSWORD` so the same test command can authenticate without extra setup.
 
 `make coverage` prints a summary and stores it in `coverage/summary.txt`.
+
+`make profile-row-decode` runs `bench/pg_row_profile.pl` against a disposable local PostgreSQL instance and prints timing plus SWI-Prolog profiler output for large synthetic query result sets.
+
+The profiler runner accepts environment overrides:
+
+- `PG_PROFILE_ROWS` as a comma-separated list such as `10000,100000,300000`
+- `PG_PROFILE_PROFILE_ROWS` for the row count used by the detailed profiler report
+- `PG_PROFILE_PATHS` as `simple,params,prepared`
+- `PG_PROFILE_SCENARIOS` as `narrow_ints,mixed_types,utf8_text,wide_text,wide_columns`
+- `PG_PROFILE_TIME` as `cpu` or `wall`
+- `PG_PROFILE_TOP` for the textual top-N report
+- `PG_PROFILE_SAMPLE_RATE` for SWI-Prolog profiler sampling rate
 
 `make release` creates a tarball in `dist/`.
 
