@@ -109,6 +109,23 @@ test(bind_message_encodes_formats_values_and_result_formats) :-
         0, 1
     ]).
 
+test(copy_binary_helpers_encode_framing) :-
+    copy_binary_header(Header),
+    copy_binary_row([binary([0, 0, 0, 1]), null, binary([97])], Row),
+    copy_binary_trailer(Trailer),
+    assertion(Header == [
+        80, 71, 67, 79, 80, 89, 10, 255, 13, 10, 0,
+        0, 0, 0, 0,
+        0, 0, 0, 0
+    ]),
+    assertion(Row == [
+        0, 3,
+        0, 0, 0, 4, 0, 0, 0, 1,
+        255, 255, 255, 255,
+        0, 0, 0, 1, 97
+    ]),
+    assertion(Trailer == [255, 255]).
+
 test(execute_message_encodes_portal_and_max_rows) :-
     execute_message("portal", 10, Bytes),
     assertion(Bytes == [
@@ -570,18 +587,38 @@ test(copy_from_recovery_after_server_data_error) :-
         )
     ).
 
-test(copy_from_binary_format_recovery) :-
+test(copy_from_binary) :-
     with_connection(
         [Connection]>>(
             pg_query(Connection, "CREATE TEMP TABLE pg_copy_binary(id int, value text)", _),
+            pg_copy_from(Connection,
+                         "COPY pg_copy_binary (id, value) FROM STDIN WITH (FORMAT binary)",
+                         binary([int4, text],
+                                [[40, "hello world"],
+                                 [41, null],
+                                 [42, "Привет"]])),
+            pg_query(Connection,
+                     "SELECT id, value FROM pg_copy_binary ORDER BY id",
+                     Result),
+            assertion(Result = data([_, _],
+                                    [[40, "hello world"],
+                                     [41, null],
+                                     [42, "Привет"]]))
+        )
+    ).
+
+test(copy_from_binary_recovery_after_server_data_error) :-
+    with_connection(
+        [Connection]>>(
+            pg_query(Connection, "CREATE TEMP TABLE pg_copy_binary_error(id int, value text)", _),
             catch(
                 pg_copy_from(Connection,
-                             "COPY pg_copy_binary (id, value) FROM STDIN WITH (FORMAT binary)",
-                             "1\talpha\n"),
+                             "COPY pg_copy_binary_error (id, value) FROM STDIN WITH (FORMAT binary)",
+                             binary([int4, int4], [[1, 2]])),
                 Error,
                 true
             ),
-            assertion(Error = error(not_implemented(copy_format(_)), _)),
+            assertion(Error = error(pg_copy_error(_, _), _)),
             pg_query(Connection, "SELECT 1 AS n", Result),
             assertion(Result = data([_], [[1]]))
         )
@@ -598,6 +635,49 @@ test(copy_from_recovery_after_unexpected_start_response) :-
                 true
             ),
             assertion(Error = error(protocol_error(unexpected_copy_start_message(_)), _)),
+            pg_query(Connection, "SELECT 1 AS n", Result),
+            assertion(Result = data([_], [[1]]))
+        )
+    ).
+
+test(copy_to_text_streams_chunks) :-
+    with_connection(
+        [Connection]>>(
+            pg_query(Connection, "CREATE TEMP TABLE pg_copy_out_text(id int, value text)", _),
+            pg_query(Connection,
+                     "INSERT INTO pg_copy_out_text (id, value) VALUES (10, 'hello world'), (11, NULL), (12, 'Привет')",
+                     _),
+            with_copy_chunk_collector(
+                copy_to_text_chunks,
+                (
+                    pg_copy_to(Connection,
+                               "COPY pg_copy_out_text (id, value) TO STDOUT WITH (FORMAT text)",
+                               test_postgresql:append_copy_chunk(copy_to_text_chunks)),
+                    collected_copy_chunks(copy_to_text_chunks, Chunks),
+                    copy_text_chunks_text(Chunks, Text),
+                    assertion(Text == "10\thello world\n11\t\\N\n12\tПривет\n")
+                )
+            ),
+            pg_last_command_tag(Connection, Tag),
+            assertion(Tag == "COPY 3")
+        )
+    ).
+
+test(copy_to_callback_failure_recovers_connection) :-
+    with_connection(
+        [Connection]>>(
+            pg_query(Connection, "CREATE TEMP TABLE pg_copy_out_failure(id int, value text)", _),
+            pg_query(Connection,
+                     "INSERT INTO pg_copy_out_failure (id, value) VALUES (20, 'line 20'), (21, 'line 21')",
+                     _),
+            catch(
+                pg_copy_to(Connection,
+                           "COPY pg_copy_out_failure (id, value) TO STDOUT WITH (FORMAT text)",
+                           test_postgresql:fail_copy_chunk_after_first),
+                Error,
+                true
+            ),
+            assertion(Error = error(copy_to_callback_failure, _)),
             pg_query(Connection, "SELECT 1 AS n", Result),
             assertion(Result = data([_], [[1]]))
         )
@@ -648,3 +728,27 @@ startup_parameter_pairs(Bytes, [Key-Value|Pairs]) :-
 split_at_null(Bytes, Before, After) :-
     append(Before, [0|After], Bytes),
     !.
+
+with_copy_chunk_collector(Name, Goal) :-
+    setup_call_cleanup(
+        nb_setval(Name, []),
+        once(call(Goal)),
+        nb_delete(Name)
+    ).
+
+append_copy_chunk(Name, Chunk) :-
+    nb_getval(Name, RevChunks),
+    nb_setval(Name, [Chunk|RevChunks]).
+
+collected_copy_chunks(Name, Chunks) :-
+    nb_getval(Name, RevChunks),
+    reverse(RevChunks, Chunks).
+
+fail_copy_chunk_after_first(_Chunk) :-
+    throw(error(copy_to_callback_failure, _)).
+
+copy_text_chunks_text(Chunks, Text) :-
+    maplist(copy_text_chunk, Chunks, Parts),
+    atomics_to_string(Parts, "", Text).
+
+copy_text_chunk(text(Text), Text).

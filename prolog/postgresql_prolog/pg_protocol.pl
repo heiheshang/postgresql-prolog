@@ -9,6 +9,9 @@
     copy_data_message/2,
     copy_done_message/1,
     copy_fail_message/2,
+    copy_binary_header/1,
+    copy_binary_row/2,
+    copy_binary_trailer/1,
     parse_message/4,
     bind_message/6,
     execute_message/3,
@@ -122,6 +125,23 @@ copy_done_message(Bytes) :-
 copy_fail_message(Message, Bytes) :-
     build_message(copy_fail, cstring(Message), Bytes).
 
+copy_binary_header(Bytes) :-
+    phrase(
+        (
+            bytes([80, 71, 67, 79, 80, 89, 10, 255, 13, 10, 0]),
+            int32be(0),
+            int32be(0)
+        ),
+        Bytes
+    ).
+
+copy_binary_row(Fields, Bytes) :-
+    length(Fields, NumFields),
+    phrase((int16be(NumFields), copy_binary_fields(Fields)), Bytes).
+
+copy_binary_trailer(Bytes) :-
+    phrase(int16be(65535), Bytes).
+
 parse_message(Name, Query, Oids, Bytes) :-
     length(Oids, NumOids),
     build_message(
@@ -230,12 +250,14 @@ parse_server_message_type(90, ready) :- !.
 parse_server_message_type(84, row_desc) :- !.
 parse_server_message_type(68, data_row) :- !.
 parse_server_message_type(67, cmd_complete) :- !.
+parse_server_message_type(100, copy_data) :- !.
 parse_server_message_type(49, parse_complete) :- !.
 parse_server_message_type(50, bind_complete) :- !.
 parse_server_message_type(51, close_complete) :- !.
 parse_server_message_type(71, copy_in) :- !.
 parse_server_message_type(72, copy_out) :- !.
 parse_server_message_type(87, copy_both) :- !.
+parse_server_message_type(99, copy_done) :- !.
 parse_server_message_type(110, no_data) :- !.
 parse_server_message_type(115, suspended) :- !.
 parse_server_message_type(65, notify) :- !.
@@ -466,6 +488,11 @@ values([Value|Values]) -->
     bind_value(Value),
     values(Values).
 
+copy_binary_fields([]) --> [].
+copy_binary_fields([Field|Fields]) -->
+    copy_binary_field(Field),
+    copy_binary_fields(Fields).
+
 bind_value(null) -->
     [255, 255, 255, 255].
 bind_value(text(Text)) -->
@@ -475,6 +502,15 @@ bind_value(text(Text)) -->
     int32be(Len),
     bytes(Data).
 bind_value(binary(Data)) -->
+    { is_list(Data),
+      length(Data, Len)
+    },
+    int32be(Len),
+    bytes(Data).
+
+copy_binary_field(null) -->
+    [255, 255, 255, 255].
+copy_binary_field(binary(Data)) -->
     { is_list(Data),
       length(Data, Len)
     },

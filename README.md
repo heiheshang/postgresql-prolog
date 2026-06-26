@@ -5,7 +5,7 @@
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?logo=postgresql&logoColor=white)](https://github.com/postgres/postgres)
 [![SWI-Prolog](https://img.shields.io/badge/SWI--Prolog-E61B23?logo=prolog&logoColor=white)](https://github.com/SWI-Prolog/swipl-devel)
 
-PostgreSQL driver for SWI-Prolog with support for simple queries, prepared statements, LISTEN/NOTIFY, and `COPY FROM STDIN`.
+PostgreSQL driver for SWI-Prolog with support for simple queries, prepared statements, LISTEN/NOTIFY, `COPY FROM STDIN`, and `COPY TO STDOUT`.
 
 The active driver module is `pg`, provided by `library(postgresql_prolog/pg)`.
 
@@ -38,17 +38,16 @@ Implemented now:
 - cleartext password and `md5` authentication
 - basic result decoding for `int4`, `int8`, `text`, `varchar`, `bool`, and `null`
 - LISTEN / NOTIFY
-- `COPY FROM STDIN` for text and csv input via `pg_copy.pl`
+- `COPY FROM STDIN` for text, csv, and binary input via `pg_copy.pl`
+- streaming `COPY TO STDOUT` via callback-driven `pg_copy_to/3`
 - metadata helpers for backend PID, server parameters, and last command tag
+- cancel API via `pg_cancel/1`
 - recovery after simple-query, extended-query, and server-side COPY errors
 
 Not implemented yet:
 
 - SCRAM / SASL authentication
 - SSL
-- `COPY TO STDOUT`
-- binary COPY
-- cancel API
 - binary result formats for extended query mode
 
 See `ROADMAP.md` for the planned architecture steps.
@@ -109,10 +108,12 @@ pg_wait_for_notification(+Connection, +TimeoutSeconds, -Notification)
 pg_notify(+Connection, +Channel, +Payload)
 
 pg_copy_from(+Connection, +CopySQL, +Data)
+pg_copy_to(+Connection, +CopySQL, +Handler)
 
 pg_backend_pid(+Connection, -PID)
 pg_server_parameter(+Connection, +Name, -Value)
 pg_last_command_tag(+Connection, -Tag)
+pg_cancel(+Connection)
 ```
 
 Connection options:
@@ -138,7 +139,21 @@ Query result values are one of:
 
 `pg_listen/3` accepts either `none` or a callable that will be invoked as `call(Handler, Notification)`.
 
-For `pg_copy_from/3`, `Data` may be a single text chunk, a byte list, a list of chunks, or `chunks(List)`. For text and csv COPY, each chunk is sent as one `CopyData` message and the driver finishes with `CopyDone`.
+For `pg_copy_from/3`, `Data` may be:
+
+- a single text chunk, byte list, list of chunks, or `chunks(List)` for text/csv COPY
+- `binary(TypeSpecs, Rows)` for binary COPY, where `TypeSpecs` are type names or OIDs and each row is a list (or `row(List)`) of field values
+
+For text and csv COPY, each chunk is sent as one `CopyData` message and the driver finishes with `CopyDone`.
+
+For binary COPY, the driver emits the PostgreSQL binary COPY header/trailer and encodes each row from `binary(TypeSpecs, Rows)` using the type layer.
+
+`pg_copy_to/3` accepts either `none` or a callable that will be invoked as `call(Handler, Chunk)`, where `Chunk` is:
+
+- `text(Text)` for text/csv COPY output
+- `binary(Bytes)` for binary COPY output
+
+After a successful `pg_copy_to/3`, inspect `pg_last_command_tag/2` if you need the final `COPY n` tag.
 
 ## Examples
 
@@ -173,12 +188,32 @@ pg_copy_from(Conn,
              ])).
 ```
 
+Binary COPY FROM STDIN:
+
+```prolog
+pg_copy_from(Conn,
+             "COPY my_table (id, value) FROM STDIN WITH (FORMAT binary)",
+             binary([int4, text], [
+                 [1, "hello"],
+                 [2, null]
+             ])).
+```
+
+COPY TO STDOUT:
+
+```prolog
+pg_copy_to(Conn,
+           "COPY my_table (id, value) TO STDOUT WITH (FORMAT text)",
+           writeln).
+```
+
 ## Notes
 
 - simple-query and prepared-query paths recover to a usable connection after server-side errors
 - multi-statement simple queries return the last result set or command status
 - `pg_server_parameter/3` reads cached startup and status parameters already seen on the connection
-- `pg_copy_from/3` supports `COPY ... FROM STDIN` in text and csv mode and recovers to a reusable connection after server-side COPY data errors
+- `pg_copy_from/3` supports `COPY ... FROM STDIN` in text, csv, and binary mode and recovers to a reusable connection after server-side COPY data errors
+- `pg_copy_to/3` streams COPY output through a callback and drains back to a reusable connection even if the callback throws
 - UTF-8 is an explicit wire-level contract: the startup message requests `client_encoding=UTF8`, matching the driver's text codecs
 
 ## Architecture
@@ -279,10 +314,9 @@ Planned next steps include:
 
 - SCRAM / SASL authentication
 - SSL support
-- `COPY TO STDOUT`
-- binary COPY
+- broader COPY protocol coverage and more imported `epgsql_copy_SUITE` scenarios
 - richer binary decoding paths
-- cancel API
+- broader built-in type coverage
 
 ## Contributing
 
