@@ -239,25 +239,21 @@ parse_server_message_type(73, empty) :- !.
 parse_server_message_type(78, notice) :- !.
 parse_server_message_type(TypeByte, unknown(TypeByte)).
 
-parse_authentication(Bytes, Method) :-
-    Bytes = [B3,B2,B1,B0|Rest],
-    bytes_integer32([B3,B2,B1,B0], AuthType),
-    (   AuthType = 0 -> Method = ok
-    ;   AuthType = 3 -> Method = password
-    ;   AuthType = 5 -> Method = md5_salt(Rest)
-    ;   AuthType = 10 -> Method = sasl
-    ;   AuthType = 11 -> Method = sasl_continue(Rest)
-    ;   AuthType = 12 -> Method = sasl_final(Rest)
-    ;   Method = unknown(AuthType)
-    ).
+parse_authentication([0,0,0,0|_], ok) :- !.
+parse_authentication([0,0,0,3|_], password) :- !.
+parse_authentication([0,0,0,5|Rest], md5_salt(Rest)) :- !.
+parse_authentication([0,0,0,10|_], sasl) :- !.
+parse_authentication([0,0,0,11|Rest], sasl_continue(Rest)) :- !.
+parse_authentication([0,0,0,12|Rest], sasl_final(Rest)) :- !.
+parse_authentication([B3,B2,B1,B0|_], unknown(AuthType)) :-
+    AuthType is (B3 << 24) + (B2 << 16) + (B1 << 8) + B0.
 
 parse_parameter_status(Bytes, Key-Value) :-
     once(phrase((cstring(Key), cstring(Value)), Bytes)).
 
-parse_backend_key([B3,B2,B1,B0|Rest], PID, Secret) :-
-    bytes_integer32([B3,B2,B1,B0], PID),
-    Rest = [S3,S2,S1,S0|_],
-    bytes_integer32([S3,S2,S1,S0], Secret).
+parse_backend_key([P3,P2,P1,P0,S3,S2,S1,S0|_], PID, Secret) :-
+    PID is (P3 << 24) + (P2 << 16) + (P1 << 8) + P0,
+    Secret is (S3 << 24) + (S2 << 16) + (S1 << 8) + S0.
 
 parse_notification(Bytes, notification{
                        pid: PID,
@@ -281,8 +277,10 @@ parse_error_fields(Bytes, Fields) :-
 parse_notice(Bytes, Fields) :-
     parse_error_fields(Bytes, Fields).
 
-parse_ready_for_query([StatusByte], Status) :-
-    parse_tx_status(StatusByte, Status).
+parse_ready_for_query([73], idle) :- !.
+parse_ready_for_query([84], in_transaction) :- !.
+parse_ready_for_query([69], failed_transaction) :- !.
+parse_ready_for_query([StatusByte], unknown(StatusByte)).
 
 parse_command_complete(Bytes, Tag) :-
     once(phrase(cstring(Tag), Bytes)).
@@ -443,7 +441,6 @@ cstring_bytes(Bytes) -->
     cstring_bytes(Rest).
 
 peek_byte(Byte, [Byte|Rest], [Byte|Rest]).
-peek_bytes4(B3, B2, B1, B0, [B3, B2, B1, B0|Rest], [B3, B2, B1, B0|Rest]).
 
 startup_parameters([]) -->
     [0].
@@ -537,15 +534,11 @@ data_row_values(N, [Value|Values]) -->
     { N1 is N - 1 },
     data_row_values(N1, Values).
 
-data_row_value(Value) -->
-    peek_bytes4(B3, B2, B1, B0),
-    data_row_value_dispatch(B3, B2, B1, B0, Value).
-
-data_row_value_dispatch(255, 255, 255, 255, null) -->
+data_row_value(null) -->
     [255, 255, 255, 255].
-data_row_value_dispatch(B3, B2, B1, B0, data(ValueBytes)) -->
+data_row_value(data(ValueBytes)) -->
     [B3, B2, B1, B0],
-    { bytes_integer32([B3, B2, B1, B0], Length),
+    { Length is (B3 << 24) + (B2 << 16) + (B1 << 8) + B0,
       Length >= 0,
       Length =\= 4294967295,
       length(ValueBytes, Length)
@@ -576,11 +569,6 @@ integer32_bytes(Int, Bytes) :-
     ->  bytes_integer32(Int, Bytes)
     ;   bytes_integer32(Bytes, Int)
     ).
-
-parse_tx_status(73, idle) :- !.
-parse_tx_status(84, in_transaction) :- !.
-parse_tx_status(69, failed_transaction) :- !.
-parse_tx_status(StatusByte, unknown(StatusByte)).
 
 parse_copy_format(0, text) :- !.
 parse_copy_format(1, binary) :- !.

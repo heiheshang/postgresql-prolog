@@ -129,6 +129,37 @@ test(parse_error_fields_preserves_existing_reverse_accumulator_order) :-
     parse_error_fields([77, 111, 111, 112, 115, 0, 67, 50, 51, 53, 48, 53, 0, 0], Fields),
     assertion(Fields == [67-"23505", 77-"oops"]).
 
+test(parse_authentication_decodes_known_and_unknown_methods) :-
+    parse_authentication([0, 0, 0, 0], Ok),
+    parse_authentication([0, 0, 0, 3], Password),
+    parse_authentication([0, 0, 0, 5, 1, 2, 3, 4], MD5),
+    parse_authentication([0, 0, 0, 10], SASL),
+    parse_authentication([0, 0, 0, 11, 9, 8], SASLContinue),
+    parse_authentication([0, 0, 0, 12, 7, 6], SASLFinal),
+    parse_authentication([0, 0, 0, 99], Unknown),
+    assertion(Ok == ok),
+    assertion(Password == password),
+    assertion(MD5 == md5_salt([1, 2, 3, 4])),
+    assertion(SASL == sasl),
+    assertion(SASLContinue == sasl_continue([9, 8])),
+    assertion(SASLFinal == sasl_final([7, 6])),
+    assertion(Unknown == unknown(99)).
+
+test(parse_backend_key_decodes_pid_and_secret) :-
+    parse_backend_key([0, 0, 0, 42, 0, 0, 1, 2], PID, Secret),
+    assertion(PID == 42),
+    assertion(Secret == 258).
+
+test(parse_ready_for_query_decodes_known_and_unknown_statuses) :-
+    parse_ready_for_query([73], Idle),
+    parse_ready_for_query([84], InTransaction),
+    parse_ready_for_query([69], Failed),
+    parse_ready_for_query([88], Unknown),
+    assertion(Idle == idle),
+    assertion(InTransaction == in_transaction),
+    assertion(Failed == failed_transaction),
+    assertion(Unknown == unknown(88)).
+
 test(parse_copy_response_decodes_overall_and_column_formats) :-
     parse_copy_response([0, 0, 2, 0, 0, 0, 1], Response),
     assertion(Response == copy_response{
