@@ -60,7 +60,7 @@ with_two_connections(Goal) :-
 
 test(connect_success) :-
     with_connection(
-        [Connection]>>assertion(Connection = pg_conn(_, _, _, _))
+        [Connection]>>assertion(Connection = pg_conn(_, _, _, _, _, _))
     ).
 
 test(connect_failure_cleans_session_state) :-
@@ -338,7 +338,7 @@ test(disconnect_cleans_prepared_state) :-
     setup_call_cleanup(
         connect_test_db(Connection),
         once((
-            Connection = pg_conn(Stream, _, _, _),
+            Connection = pg_conn(Stream, _, _, _, _, _),
             pg_prepare(Connection, cleanup_stmt, "SELECT 1 AS n", []),
             assertion(pg_prepared:prepared_statement(Stream, cleanup_stmt, []))
         )),
@@ -602,6 +602,29 @@ test(copy_from_recovery_after_unexpected_start_response) :-
             assertion(Result = data([_], [[1]]))
         )
     ).
+
+test(cancel_query) :-
+    thread_self(Parent),
+    thread_create(
+        (   setup_call_cleanup(
+                connect_test_db(Connection),
+                (   thread_send_message(Parent, connection(Connection)),
+                    pg_query(Connection, "SELECT pg_sleep(5)", Result),
+                    thread_send_message(Parent, query_result(Result))
+                ),
+                pg_disconnect(Connection)
+            )
+        ),
+        ThreadId,
+        []
+    ),
+    thread_get_message(connection(Connection)),
+    sleep(0.5),
+    pg_cancel(Connection),
+    thread_get_message(query_result(Result)),
+    thread_join(ThreadId, _),
+    assertion(Result = error(Fields)),
+    assertion(member(67-"57014", Fields)).
 
 :- end_tests(pg_driver).
 

@@ -18,7 +18,8 @@
     pg_last_command_tag/2,
     pg_escape_identifier/2,
     pg_escape_literal/2,
-    pg_set_notice_processor/2
+    pg_set_notice_processor/2,
+    pg_cancel/1
 ]).
 
 :- use_module(library(socket)).
@@ -50,7 +51,7 @@ pg_connect(Host:Port, Connection, Options) :-
     ),
     setup_call_catcher_cleanup(
         open_connection_stream(Host, Port, Stream),
-        init_connection(Stream, User, Pass, DB, Connection),
+        init_connection(Stream, Host, Port, User, Pass, DB, Connection),
         Catcher,
         cleanup_failed_connect(Catcher, Stream)
     ).
@@ -61,6 +62,15 @@ pg_disconnect(Connection) :-
         true,
         send_terminate_message(Stream),
         cleanup_connection_stream(Stream)
+    ).
+
+pg_cancel(pg_conn(_, Host, Port, PID, Secret, _)) :-
+    setup_call_cleanup(
+        open_connection_stream(Host, Port, CancelStream),
+        (   pg_protocol:cancel_request(PID, Secret, Bytes),
+            write_message(CancelStream, Bytes)
+        ),
+        close(CancelStream, [force(true)])
     ).
 
 pg_query(Connection, SQL, Result) :-
@@ -142,8 +152,8 @@ pg_set_notice_processor(Connection, Pred) :-
     get_connection_stream(Connection, Stream),
     pg_async:pg_set_notice_processor(Stream, Pred).
 
-init_connection(Stream, User, Pass, DB, pg_conn(Stream, PID, Secret, Params)) :-
-    pg_session_open(Stream),
+init_connection(Stream, Host, Port, User, Pass, DB, pg_conn(Stream, Host, Port, PID, Secret, Params)) :-
+    pg_session_open(Stream, Host, Port),
     startup_message(User, DB, Startup),
     write_message(Stream, Startup),
     pg_auth:pg_receive_auth(Stream, User, Pass),
@@ -245,33 +255,6 @@ handle_result_segment(Segment, ok(Tag)) :-
 handle_result_segment(Segment, ok) :-
     member(empty-_, Segment).
 
-extract_data(Cols, Msgs, Rows) :-
-    extract_data_rows(Msgs, Cols, [], RevRows),
-    reverse(RevRows, Rows).
-
-decode_row(Cols, Data, Row) :-
-    decode_fields(Cols, Data, Row).
-
-decode_field(Col, data(Bytes), Value) :-
-    TypeOID = Col.type_oid,
-    pg_protocol:bytes_text(Bytes, Text),
-    type_decoder(TypeOID, Text, Value).
-decode_field(_, null, null).
-
-extract_data_rows([], _, Rows, Rows).
-extract_data_rows([data_row-Bytes|Msgs], Cols, Rows0, Rows) :-
-    !,
-    parse_data_row(Bytes, Data),
-    decode_row(Cols, Data, Row),
-    extract_data_rows(Msgs, Cols, [Row|Rows0], Rows).
-extract_data_rows([_|Msgs], Cols, Rows0, Rows) :-
-    extract_data_rows(Msgs, Cols, Rows0, Rows).
-
-decode_fields([], [], []).
-decode_fields([Col|Cols], [Value|Values], [Decoded|DecodedValues]) :-
-    decode_field(Col, Value, Decoded),
-    decode_fields(Cols, Values, DecodedValues).
-
 extract_result_rows(Cols, Msgs, Rows) :-
     last_result_segment(Msgs, Segment),
     extract_data(Cols, Segment, Rows).
@@ -320,7 +303,7 @@ drop_result_messages([Message|Messages], Messages) :-
 drop_result_messages([_|Messages], Remaining) :-
     drop_result_messages(Messages, Remaining).
 
-get_connection_stream(pg_conn(Stream, _, _, _), Stream).
+get_connection_stream(pg_conn(Stream, _, _, _, _, _), Stream).
 get_connection_stream(Stream, Stream) :-
     is_stream(Stream).
 

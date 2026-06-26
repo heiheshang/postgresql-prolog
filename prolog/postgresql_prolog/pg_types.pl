@@ -2,7 +2,10 @@
     oid_type/2,
     type_encoder/3,
     type_decoder/3,
-    register_type/3
+    resolve_decoder/2,
+    decode_value/3,
+    register_type/3,
+    extract_data/3
 ]).
 
 :- use_module(library(base64)).
@@ -11,6 +14,10 @@
 :- use_module(library(date)).
 :- use_module(library(http/json)).
 :- use_module(library(uuid)).
+:- use_module(library(postgresql_prolog/pg_protocol), [
+    parse_data_row/2,
+    bytes_text/2
+]).
 
 :- dynamic user_type/3.
 
@@ -107,14 +114,22 @@ encode_default(Value, Text) :-
     ).
 
 type_decoder(OID, Data, Decoded) :-
+    resolve_decoder(OID, Decoder),
+    decode_value(Decoder, Data, Decoded).
+
+resolve_decoder(OID, user(Module)) :-
     user_type(OID, _, Module),
-    !,
-    Module:decode(Data, Decoded).
-type_decoder(OID, Data, Decoded) :-
+    !.
+resolve_decoder(OID, builtin(Type)) :-
     oid_type(OID, Type),
-    !,
+    !.
+resolve_decoder(_, default).
+
+decode_value(user(Module), Data, Decoded) :-
+    Module:decode(Data, Decoded).
+decode_value(builtin(Type), Data, Decoded) :-
     decode_type(Type, Data, Decoded).
-type_decoder(_, Data, Decoded) :-
+decode_value(default, Data, Decoded) :-
     decode_default(Data, Decoded).
 
 decode_type(bool, "t", true).
@@ -223,6 +238,38 @@ term_to_json(Term, Term) :-
 term_to_json(Term, Json) :-
     blob(Term, json_dict),
     atom_json_dict(Json, Term, []).
+
+extract_data(Cols, Msgs, Rows) :-
+    columns_decoders(Cols, Decoders),
+    extract_data_rows(Msgs, Decoders, [], RevRows),
+    reverse(RevRows, Rows).
+
+columns_decoders([], []).
+columns_decoders([Col|Cols], [Decoder|Decoders]) :-
+    resolve_decoder(Col.type_oid, Decoder),
+    columns_decoders(Cols, Decoders).
+
+decode_row(Decoders, Data, Row) :-
+    decode_fields(Decoders, Data, Row).
+
+decode_field(Decoder, data(Bytes), Value) :-
+    bytes_text(Bytes, Text),
+    decode_value(Decoder, Text, Value).
+decode_field(_, null, null).
+
+extract_data_rows([], _, Rows, Rows).
+extract_data_rows([data_row-Bytes|Msgs], Decoders, Rows0, Rows) :-
+    !,
+    parse_data_row(Bytes, Data),
+    decode_row(Decoders, Data, Row),
+    extract_data_rows(Msgs, Decoders, [Row|Rows0], Rows).
+extract_data_rows([_|Msgs], Decoders, Rows0, Rows) :-
+    extract_data_rows(Msgs, Decoders, Rows0, Rows).
+
+decode_fields([], [], []).
+decode_fields([Decoder|Decoders], [Value|Values], [Decoded|DecodedValues]) :-
+    decode_field(Decoder, Value, Decoded),
+    decode_fields(Decoders, Values, DecodedValues).
 
 :- multifile sandbox:safe_primitive/1.
 sandbox:safe_primitive(pg_types:_).

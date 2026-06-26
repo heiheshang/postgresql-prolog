@@ -1,6 +1,7 @@
 :- module(pg_protocol, [
     startup_message/3,
     ssl_request/1,
+    cancel_request/3,
     password_message/2,
     sasl_initial_response/3,
     sasl_response/2,
@@ -73,6 +74,9 @@ msg_type(empty,         73).
 
 ssl_request(Bytes) :-
     phrase((int32be(8), int32be(80877103)), Bytes).
+
+cancel_request(PID, Secret, Bytes) :-
+    phrase((int32be(16), int32be(80877102), int32be(PID), int32be(Secret)), Bytes).
 
 startup_message(User, Database, Bytes) :-
     build_startup_message(
