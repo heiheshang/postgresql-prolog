@@ -1,25 +1,25 @@
 :- module(pg, [
-    pg_connect/2,
-    pg_connect/3,
-    pg_disconnect/1,
-    pg_query/3,
-    pg_query/4,
-    pg_prepare/4,
-    pg_execute/4,
-    pg_execute/3,
-    pg_transaction/2,
-    pg_listen/3,
-    pg_notify/3,
-    pg_wait_for_notification/3,
-    pg_copy_from/3,
-    pg_copy_to/3,
-    pg_backend_pid/2,
-    pg_server_parameter/3,
-    pg_last_command_tag/2,
-    pg_escape_identifier/2,
-    pg_escape_literal/2,
-    pg_set_notice_processor/2,
-    pg_cancel/1
+    pg_connect/2,              % +HostPort, -Connection
+    pg_connect/3,              % +HostPort, -Connection, +Options
+    pg_disconnect/1,           % +Connection
+    pg_query/3,                % +Connection, +SQL, -Result
+    pg_query/4,                % +Connection, +SQL, +Params, -Result
+    pg_prepare/4,              % +Connection, +Name, +SQL, +ParamTypes
+    pg_execute/4,              % +Connection, +Name, +Params, -Result
+    pg_execute/3,              % +Connection, +Name, -Result
+    pg_transaction/2,          % +Connection, :Goal
+    pg_listen/3,               % +Connection, +Channel, +Handler
+    pg_notify/3,               % +Connection, +Channel, +Payload
+    pg_wait_for_notification/3,% +Connection, +Timeout, -Notification
+    pg_copy_from/3,            % +Connection, +CopySQL, +Data
+    pg_copy_to/3,              % +Connection, +CopySQL, +Handler
+    pg_backend_pid/2,          % +Connection, -PID
+    pg_server_parameter/3,     % +Connection, +Name, -Value
+    pg_last_command_tag/2,     % +Connection, -Tag
+    pg_escape_identifier/2,    % +Identifier, -Escaped
+    pg_escape_literal/2,       % +Literal, -Escaped
+    pg_set_notice_processor/2, % +Connection, +Pred
+    pg_cancel/1                % +Connection
 ]).
 
 :- use_module(library(socket)).
@@ -36,6 +36,66 @@
 :- use_module(library(postgresql_prolog/pg_types)).
 
 :- meta_predicate pg_transaction(+, 0).
+
+/** <module> PostgreSQL driver for SWI-Prolog.
+
+This package provides a native PostgreSQL client for SWI-Prolog with
+support for simple queries, parameterized and prepared queries,
+transactions, LISTEN/NOTIFY, COPY, cancellation, and explicit session
+recovery to `ReadyForQuery`.
+
+The public API is exposed from `library(postgresql_prolog/pg)`.
+The active driver is split into focused layers:
+
+  * `pg.pl` for the public API and session orchestration
+  * `pg_protocol.pl` for PostgreSQL wire encoding and decoding
+  * `pg_types.pl` for type mapping and value conversion
+  * `pg_session.pl` for protocol-phase and connection state tracking
+
+The easiest way to install on SWI-Prolog is through the package manager:
+
+==
+?- pack_install(postgresql_prolog).
+==
+
+Then load the library with:
+
+==
+?- use_module(library(postgresql_prolog/pg)).
+==
+
+For a small runnable example, see `examples/simple.pl` in the source tree.
+For a broader overview of supported predicates and current protocol
+coverage, see `README.md`.
+
+Typical usage:
+
+==
+?- use_module(library(postgresql_prolog/pg)).
+?- pg_connect('127.0.0.1':5432, Conn,
+              [user("postgres"), password("secret"), database("postgres")]),
+   pg_query(Conn, "SELECT 1 AS n", Result),
+   pg_disconnect(Conn).
+==
+
+Current supported areas include:
+
+  * connect / disconnect
+  * simple queries
+  * parameterized and prepared queries
+  * transaction helpers
+  * LISTEN / NOTIFY
+  * `COPY FROM STDIN` in text, csv, and binary mode
+  * streaming `COPY TO STDOUT`
+  * backend PID, server parameter, and last command metadata
+  * query cancellation via `pg_cancel/1`
+
+Not implemented yet:
+
+  * SCRAM / SASL authentication
+  * SSL
+  * binary result formats for extended query mode
+*/
 
 pg_connect(Host:Port, Connection) :-
     pg_connect(Host:Port, Connection, []).

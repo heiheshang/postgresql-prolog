@@ -6,6 +6,15 @@
 
 :- use_module(library(postgresql_prolog/pg_protocol)).
 
+/** <module> PostgreSQL authentication helpers.
+
+Internal authentication layer for the PostgreSQL driver.
+This module owns the startup authentication exchange and currently supports
+cleartext password and `md5` authentication methods.
+
+It is intended for use by `pg.pl`, not as a standalone public API.
+*/
+
 pg_receive_auth(Stream, User, Pass) :-
     read_message(Stream, Msg),
     (   Msg = auth-Bytes

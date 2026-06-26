@@ -30,6 +30,17 @@
 :- thread_local
     session_state/2.
 
+/** <module> PostgreSQL session state tracking.
+
+Internal session layer for the PostgreSQL driver.
+This module stores per-connection state such as protocol phase, transaction
+status, backend key data, server parameters, handlers, and queued
+notifications, and it centralizes draining to `ReadyForQuery`.
+
+It supports the public API in `pg.pl` but is not intended for direct
+application use.
+*/
+
 pg_session_open(Stream) :-
     pg_session_open(Stream, '127.0.0.1', 5432).
 

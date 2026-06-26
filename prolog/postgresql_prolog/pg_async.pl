@@ -12,6 +12,16 @@
 :- use_module(library(postgresql_prolog/pg_protocol)).
 :- use_module(library(postgresql_prolog/pg_session)).
 
+/** <module> PostgreSQL async message handling.
+
+Internal async layer for notices and notifications.
+This module routes backend `NoticeResponse` and `NotificationResponse`
+messages into session handlers and queued notifications.
+
+It supports the public LISTEN/NOTIFY surface exported from `pg.pl`, but is
+not itself the main user-facing API.
+*/
+
 pg_set_notice_processor(Connection, Pred) :-
     must_be(callable, Pred),
     pg_session_set_notice_handler(Connection, Pred).

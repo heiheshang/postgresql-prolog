@@ -9,6 +9,16 @@
 :- use_module(library(postgresql_prolog/pg_session)).
 :- use_module(library(postgresql_prolog/pg_types)).
 
+/** <module> PostgreSQL COPY orchestration.
+
+Internal COPY layer for the PostgreSQL driver.
+This module implements `COPY FROM STDIN` and `COPY TO STDOUT` flows,
+including text/csv and binary COPY input, streaming output, and recovery
+back to `ReadyForQuery`.
+
+It is called by `pg.pl` and is not intended as a separate top-level API.
+*/
+
 pg_copy_from(Connection, SQL, Data) :-
     get_connection_stream(Connection, Stream),
     start_copy(Stream, copy_in, SQL, CopyResponse),
