@@ -189,6 +189,6 @@ text_bytes(Text, Bytes) :-
         phrase(utf8_codes(Codes), Bytes)
     ).
 
-get_connection_stream(pg_conn(Stream, _, _, _), Stream).
+get_connection_stream(pg_conn(Stream, _, _, _, _, _), Stream).
 get_connection_stream(Stream, Stream) :-
     is_stream(Stream).

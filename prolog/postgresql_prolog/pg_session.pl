@@ -1,7 +1,9 @@
 :- module(pg_session, [
     pg_session_open/1,
+    pg_session_open/3,
     pg_session_close/1,
     pg_session_new/2,
+    pg_session_new/4,
     pg_session_get/2,
     pg_session_set/2,
     pg_session_set_phase/2,
@@ -29,13 +31,21 @@
     session_state/2.
 
 pg_session_open(Stream) :-
-    pg_session_new(Stream, Session),
+    pg_session_open(Stream, '127.0.0.1', 5432).
+
+pg_session_open(Stream, Host, Port) :-
+    pg_session_new(Stream, Host, Port, Session),
     pg_session_set(Stream, Session).
 
 pg_session_close(Stream) :-
     retractall(session_state(Stream, _)).
 
-pg_session_new(_Stream, session{
+pg_session_new(Stream, Session) :-
+    pg_session_new(Stream, '127.0.0.1', 5432, Session).
+
+pg_session_new(_Stream, Host, Port, session{
+    host: Host,
+    port: Port,
     phase: ready,
     backend_pid: 0,
     cancel_secret: 0,
