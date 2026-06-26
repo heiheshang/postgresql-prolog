@@ -44,6 +44,16 @@
 :- use_module(library(base64)).
 :- use_module(library(utf8)).
 
+/** <module> PostgreSQL wire protocol codec.
+
+Internal protocol layer for the PostgreSQL driver.
+This module owns frontend message construction, backend message parsing,
+COPY binary framing helpers, and low-level stream I/O for PostgreSQL
+wire-format packets.
+
+It is a shared implementation dependency of the higher-level driver layers.
+*/
+
 msg_type(terminate,     88).
 msg_type(query,         81).
 msg_type(parse,         80).

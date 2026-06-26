@@ -22,6 +22,17 @@
 
 :- dynamic user_type/3.
 
+/** <module> PostgreSQL type mapping and codecs.
+
+Internal type layer for the PostgreSQL driver.
+This module maps PostgreSQL OIDs to logical types, provides text and binary
+encoders/decoders, supports custom type registration, and converts result
+rows into Prolog values.
+
+It is used by query, prepared-statement, and COPY paths rather than as a
+separate top-level API.
+*/
+
 oid_type(16, bool).
 oid_type(17, bytea).
 oid_type(18, char).

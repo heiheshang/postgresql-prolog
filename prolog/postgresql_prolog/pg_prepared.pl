@@ -13,6 +13,15 @@
 :- thread_local
     prepared_statement/3.
 
+/** <module> PostgreSQL prepared-query helpers.
+
+Internal extended-query layer for parameterized queries and prepared
+statements. This module builds Parse/Bind/Describe/Execute/Sync message
+sequences and cooperates with `pg_session.pl` for error recovery.
+
+It is used by `pg.pl` and is not intended as a standalone public interface.
+*/
+
 pg_query_params(Connection, SQL, Params, Result) :-
     get_connection_stream(Connection, Stream),
     unspecified_param_oids(Params, ParamOids),
