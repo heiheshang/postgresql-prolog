@@ -21,7 +21,6 @@
     pg_set_notice_processor/2
 ]).
 
-:- use_module(library(apply)).
 :- use_module(library(socket)).
 :- use_module(library(option)).
 
@@ -247,21 +246,31 @@ handle_result_segment(Segment, ok) :-
     member(empty-_, Segment).
 
 extract_data(Cols, Msgs, Rows) :-
-    findall(Row,
-        (   member(data_row-Bytes, Msgs),
-            parse_data_row(Bytes, Data),
-            decode_row(Cols, Data, Row)
-        ),
-        Rows).
+    extract_data_rows(Msgs, Cols, [], RevRows),
+    reverse(RevRows, Rows).
 
 decode_row(Cols, Data, Row) :-
-    maplist(decode_field, Cols, Data, Row).
+    decode_fields(Cols, Data, Row).
 
 decode_field(Col, data(Bytes), Value) :-
     TypeOID = Col.type_oid,
     pg_protocol:bytes_text(Bytes, Text),
     type_decoder(TypeOID, Text, Value).
 decode_field(_, null, null).
+
+extract_data_rows([], _, Rows, Rows).
+extract_data_rows([data_row-Bytes|Msgs], Cols, Rows0, Rows) :-
+    !,
+    parse_data_row(Bytes, Data),
+    decode_row(Cols, Data, Row),
+    extract_data_rows(Msgs, Cols, [Row|Rows0], Rows).
+extract_data_rows([_|Msgs], Cols, Rows0, Rows) :-
+    extract_data_rows(Msgs, Cols, Rows0, Rows).
+
+decode_fields([], [], []).
+decode_fields([Col|Cols], [Value|Values], [Decoded|DecodedValues]) :-
+    decode_field(Col, Value, Decoded),
+    decode_fields(Cols, Values, DecodedValues).
 
 extract_result_rows(Cols, Msgs, Rows) :-
     last_result_segment(Msgs, Segment),

@@ -320,11 +320,10 @@ text_bytes(Codes, Bytes) :-
     codes_bytes(Codes, Bytes).
 
 codes_bytes(Codes, Bytes) :-
-    phrase(utf8_codes(Codes), Bytes).
+    string_bytes(Codes, Bytes, utf8).
 
 bytes_text(Bytes, Text) :-
-    phrase(utf8_codes(Codes), Bytes),
-    string_codes(Text, Codes).
+    string_bytes(Text, Bytes, utf8).
 
 startup_parameters_bytes(Parameters, Bytes) :-
     phrase(startup_parameters(Parameters), Bytes).
@@ -366,14 +365,13 @@ read_n_bytes(_, N, _) :-
     N < 0,
     !,
     throw(error(protocol_error(negative_read_length(N)), _)).
-read_n_bytes(Stream, N, [B|Bs]) :-
-    get_byte(Stream, B),
-    (   B == -1
-    ->  throw(error(unexpected_eof, _))
-    ;   true
-    ),
-    N1 is N - 1,
-    read_n_bytes(Stream, N1, Bs).
+read_n_bytes(Stream, N, Bytes) :-
+    read_string(Stream, N, String),
+    string_length(String, Len),
+    (   Len =:= N
+    ->  string_codes(String, Bytes)
+    ;   throw(error(unexpected_eof, _))
+    ).
 
 put_bytes_no_flush(Stream, Bytes) :-
     forall(member(B, Bytes), put_byte(Stream, B)).
@@ -443,7 +441,6 @@ cstring_bytes(Bytes) -->
     cstring_bytes(Rest).
 
 peek_byte(Byte, [Byte|Rest], [Byte|Rest]).
-peek_bytes4(B3, B2, B1, B0, [B3, B2, B1, B0|Rest], [B3, B2, B1, B0|Rest]).
 
 startup_parameters([]) -->
     [0].
@@ -538,15 +535,13 @@ data_row_values(N, [Value|Values]) -->
     data_row_values(N1, Values).
 
 data_row_value(Value) -->
-    peek_bytes4(B3, B2, B1, B0),
+    [B3, B2, B1, B0],
     data_row_value_dispatch(B3, B2, B1, B0, Value).
 
 data_row_value_dispatch(255, 255, 255, 255, null) -->
-    [255, 255, 255, 255].
+    [].
 data_row_value_dispatch(B3, B2, B1, B0, data(ValueBytes)) -->
-    [B3, B2, B1, B0],
-    { bytes_integer32([B3, B2, B1, B0], Length),
-      Length >= 0,
+    { Length is (B3 << 24) + (B2 << 16) + (B1 << 8) + B0,
       Length =\= 4294967295,
       length(ValueBytes, Length)
     },
