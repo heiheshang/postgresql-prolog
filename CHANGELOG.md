@@ -2,10 +2,18 @@
 
 ## Unreleased
 
+## 0.2.0
+
+Feature release that expands COPY support, adds cancellation and profiling
+tools, and improves package-level documentation.
+
 Highlights:
 
+- add `pg_cancel/1` and centralize row decoding around the active driver layers
 - add binary `COPY FROM STDIN` with typed row input via `binary(TypeSpecs, Rows)`
 - add streaming `pg_copy_to/3` for `COPY TO STDOUT` with callback-delivered chunks
+- add a row-decoding profiling harness and preserve the measured optimizations in the driver
+- add package/module documentation plus a runnable `examples/simple.pl` example
 - recover cleanly after `COPY TO STDOUT` callback failures and binary COPY server-side errors
 - add byte-level COPY framing tests plus local PostgreSQL coverage for binary COPY and streaming COPY-out
 
