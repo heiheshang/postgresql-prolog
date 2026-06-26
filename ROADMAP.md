@@ -27,26 +27,28 @@
 - Status: partial
 - Added a dedicated `pg_copy.pl` layer and wired `pg_copy_from/3` through the public API.
 - Added protocol support for `CopyData`, `CopyDone`, `CopyFail`, and parsing `CopyInResponse`.
-- Implemented `COPY FROM STDIN` for text/csv input.
+- Implemented `COPY FROM STDIN` for text/csv and binary input.
+- Implemented streaming `COPY TO STDOUT` via callback-driven `pg_copy_to/3`.
 - Added passing tests for:
   - text `COPY FROM STDIN`
   - csv `COPY FROM STDIN`
+  - binary `COPY FROM STDIN`
+  - text `COPY TO STDOUT`
   - startup/error path for `pg_copy_from/3`
   - connection reuse after server-side COPY data error
+  - connection reuse after `COPY TO STDOUT` callback failure
 - Remaining inside this layer:
-  - add binary COPY
-  - add `COPY TO STDOUT`
   - port more scenarios from `epgsql_copy_SUITE`
 
 ## Next layer
 
 4. `pg_async.pl` expansion
 
-- Status: partial
+- Status: done
 - Keep notice/notify handling in the async layer.
 - Stable queue/handler behavior now exists through the session layer and `pg_async.pl`.
 - Backend PID access is now exposed through session metadata helpers.
-- Later add `cancel/1` via a temporary connection using backend PID and secret.
+- Added `cancel/1` via a temporary connection using backend PID and secret.
 
 5. Session metadata API
 
@@ -81,7 +83,6 @@ Remaining:
 
 The shortest practical path is:
 
-1. finish COPY recovery and expand `pg_copy.pl`
-2. add `cancel/1` and any remaining async expansion
-3. expand the type system
-4. add SCRAM/SASL and SSL
+1. port more COPY scenarios and deepen the COPY protocol suite
+2. expand the type system
+3. add SCRAM/SASL and SSL

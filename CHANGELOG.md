@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+Highlights:
+
+- add binary `COPY FROM STDIN` with typed row input via `binary(TypeSpecs, Rows)`
+- add streaming `pg_copy_to/3` for `COPY TO STDOUT` with callback-delivered chunks
+- recover cleanly after `COPY TO STDOUT` callback failures and binary COPY server-side errors
+- add byte-level COPY framing tests plus local PostgreSQL coverage for binary COPY and streaming COPY-out
+
 ## 0.1.2
 
 Patch release that tightens protocol handling and improves release confidence.

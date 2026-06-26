@@ -123,8 +123,8 @@ pg_wait_for_notification(Connection, Timeout, Notification) :-
 pg_copy_from(Connection, SQL, Data) :-
     pg_copy:pg_copy_from(Connection, SQL, Data).
 
-pg_copy_to(_, _, _) :-
-    throw(error(not_implemented(pg_copy_to), _)).
+pg_copy_to(Connection, SQL, Handler) :-
+    pg_copy:pg_copy_to(Connection, SQL, Handler).
 
 pg_backend_pid(Connection, PID) :-
     get_connection_stream(Connection, Stream),

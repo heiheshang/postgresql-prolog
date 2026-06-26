@@ -1,6 +1,7 @@
 :- module(pg_types, [
     oid_type/2,
     type_encoder/3,
+    type_binary_encoder/3,
     type_decoder/3,
     resolve_decoder/2,
     decode_value/3,
@@ -60,6 +61,18 @@ type_encoder(OID, Value, Encoded) :-
 type_encoder(_, Value, Encoded) :-
     encode_default(Value, Encoded).
 
+type_binary_encoder(OID, Value, Encoded) :-
+    user_type(OID, _, Module),
+    current_predicate(Module:encode_binary/2),
+    !,
+    Module:encode_binary(Value, Encoded).
+type_binary_encoder(OID, Value, Encoded) :-
+    oid_type(OID, Type),
+    !,
+    encode_binary_type(Type, Value, Encoded).
+type_binary_encoder(OID, _, _) :-
+    throw(error(not_implemented(binary_copy_encoder(OID)), _)).
+
 encode_type(bool, true, "t").
 encode_type(bool, false, "f").
 encode_type(bool, 1, "t").
@@ -106,6 +119,47 @@ encode_type(numeric, Term, Text) :-
     ;   number(Term)
     ->  format(atom(Text), '~w', [Term])
     ).
+
+encode_binary_type(bool, true, [1]).
+encode_binary_type(bool, false, [0]).
+encode_binary_type(bool, 1, [1]).
+encode_binary_type(bool, 0, [0]).
+
+encode_binary_type(int2, Int, Bytes) :-
+    integer(Int),
+    signed_integer_bytes(Int, 2, Bytes).
+encode_binary_type(int4, Int, Bytes) :-
+    integer(Int),
+    signed_integer_bytes(Int, 4, Bytes).
+encode_binary_type(int8, Int, Bytes) :-
+    integer(Int),
+    signed_integer_bytes(Int, 8, Bytes).
+encode_binary_type(oid, Int, Bytes) :-
+    integer(Int),
+    signed_integer_bytes(Int, 4, Bytes).
+
+encode_binary_type(text, Text, Bytes) :-
+    text_binary_bytes(Text, Bytes).
+encode_binary_type(varchar, Text, Bytes) :-
+    text_binary_bytes(Text, Bytes).
+encode_binary_type(bpchar, Text, Bytes) :-
+    text_binary_bytes(Text, Bytes).
+encode_binary_type(name, Text, Bytes) :-
+    text_binary_bytes(Text, Bytes).
+
+encode_binary_type(bytea, Bytes, Encoded) :-
+    must_be_byte_list(Bytes),
+    Encoded = Bytes.
+
+encode_binary_type(json, Term, Bytes) :-
+    term_to_json(Term, Json),
+    text_binary_bytes(Json, Bytes).
+encode_binary_type(jsonb, Term, [1|Bytes]) :-
+    term_to_json(Term, Json),
+    text_binary_bytes(Json, Bytes).
+
+encode_binary_type(uuid, UUID, Bytes) :-
+    uuid_binary_bytes(UUID, Bytes).
 
 encode_default(Value, Text) :-
     (   atom(Value) -> Text = Value
@@ -238,6 +292,70 @@ term_to_json(Term, Term) :-
 term_to_json(Term, Json) :-
     blob(Term, json_dict),
     atom_json_dict(Json, Term, []).
+
+text_binary_bytes(Text, Bytes) :-
+    (   string(Text)
+    ->  String = Text
+    ;   atom(Text)
+    ->  atom_string(Text, String)
+    ;   type_error(text, Text)
+    ),
+    string_bytes(String, Bytes, utf8).
+
+signed_integer_bytes(Int, Size, Bytes) :-
+    Max is 1 << (Size * 8),
+    Unsigned is Int mod Max,
+    integer_bytes(Unsigned, Size, Bytes).
+
+integer_bytes(_, 0, []) :- !.
+integer_bytes(Int, Size, [Byte|Bytes]) :-
+    Size > 0,
+    Shift is (Size - 1) * 8,
+    Byte is (Int >> Shift) /\ 255,
+    Size1 is Size - 1,
+    integer_bytes(Int, Size1, Bytes).
+
+uuid_binary_bytes(UUID, Bytes) :-
+    (   atom(UUID)
+    ->  atom_string(UUID, UUIDText)
+    ;   string(UUID)
+    ->  UUIDText = UUID
+    ;   uuid_to_atom(UUID, UUIDAtom),
+        atom_string(UUIDAtom, UUIDText)
+    ),
+    split_string(UUIDText, "-", "", Parts),
+    atomic_list_concat(Parts, HexAtom),
+    atom_length(HexAtom, 32),
+    atom_chars(HexAtom, HexChars),
+    phrase(hex_pairs(Bytes), HexChars).
+
+hex_pairs([]) --> [].
+hex_pairs([Byte|Bytes]) -->
+    [High, Low],
+    { hex_value(High, HighValue),
+      hex_value(Low, LowValue),
+      Byte is (HighValue << 4) + LowValue
+    },
+    hex_pairs(Bytes).
+
+hex_value(Char, Value) :-
+    char_code(Char, Code),
+    (   Code >= 0'0, Code =< 0'9
+    ->  Value is Code - 0'0
+    ;   Code >= 0'a, Code =< 0'f
+    ->  Value is Code - 0'a + 10
+    ;   Code >= 0'A, Code =< 0'F
+    ->  Value is Code - 0'A + 10
+    ;   throw(error(domain_error(hex_digit, Char), _))
+    ).
+
+must_be_byte_list(Bytes) :-
+    is_list(Bytes),
+    maplist(byte_value, Bytes).
+
+byte_value(Byte) :-
+    integer(Byte),
+    between(0, 255, Byte).
 
 extract_data(Cols, Msgs, Rows) :-
     columns_decoders(Cols, Decoders),
