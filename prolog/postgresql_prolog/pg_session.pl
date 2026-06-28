@@ -24,7 +24,8 @@
     pg_session_server_parameter/3,
     pg_session_last_command_tag/2,
     pg_session_prepare_command/2,
-    pg_session_read_until_ready/2
+    pg_session_read_until_ready/2,
+    session_push_notification/3
 ]).
 
 :- use_module(library(postgresql_prolog/pg_async)).
@@ -84,71 +85,80 @@ pg_session_set(Stream, Session) :-
     retractall(session_state(Stream, _)),
     assertz(session_state(Stream, Session)).
 
+% Stream-keyed mutators (operation boundary).
+% Each one reads the current session record from the thread-local store,
+% applies a pure `session_*` State0->State1 transition, and writes it back.
+
 pg_session_set_phase(Stream, Phase) :-
-    pg_session_get(Stream, Session),
-    pg_session_set(Stream, Session.put(phase, Phase)).
+    pg_session_get(Stream, Session0),
+    session_set_phase(Session0, Phase, Session1),
+    pg_session_set(Stream, Session1).
 
 pg_session_mark_sync_required(Stream) :-
-    pg_session_get(Stream, Session),
-    pg_session_set(Stream,
-                   Session.put(_{phase: failed_until_sync, sync_required: true})).
+    pg_session_get(Stream, Session0),
+    session_mark_sync_required(Session0, Session1),
+    pg_session_set(Stream, Session1).
 
 pg_session_clear_sync_required(Stream) :-
-    pg_session_get(Stream, Session),
-    pg_session_set(Stream, Session.put(sync_required, false)).
+    pg_session_get(Stream, Session0),
+    session_clear_sync_required(Session0, Session1),
+    pg_session_set(Stream, Session1).
 
 pg_session_set_backend_key(Stream, PID, Secret) :-
-    pg_session_get(Stream, Session),
-    pg_session_set(Stream,
-                   Session.put(_{backend_pid: PID, cancel_secret: Secret})).
+    pg_session_get(Stream, Session0),
+    session_set_backend_key(Session0, PID, Secret, Session1),
+    pg_session_set(Stream, Session1).
 
-pg_session_add_parameter(Stream, Key-Value) :-
-    pg_session_get(Stream, Session),
-    put_assoc_list(Key, Value, Session.server_params, Params),
-    pg_session_set(Stream, Session.put(server_params, Params)).
+pg_session_add_parameter(Stream, KeyValue) :-
+    pg_session_get(Stream, Session0),
+    session_add_parameter(Session0, KeyValue, Session1),
+    pg_session_set(Stream, Session1).
 
 pg_session_set_tx_status(Stream, TxStatus) :-
-    pg_session_get(Stream, Session),
-    pg_session_set(Stream, Session.put(tx_status, TxStatus)).
+    pg_session_get(Stream, Session0),
+    session_set_tx_status(Session0, TxStatus, Session1),
+    pg_session_set(Stream, Session1).
 
 pg_session_set_notice_handler(Stream, Pred) :-
-    pg_session_get(Stream, Session),
-    pg_session_set(Stream, Session.put(notice_handler, Pred)).
+    pg_session_get(Stream, Session0),
+    session_set_notice_handler(Session0, Pred, Session1),
+    pg_session_set(Stream, Session1).
 
 pg_session_set_notification_handler(Stream, Pred) :-
-    pg_session_get(Stream, Session),
-    pg_session_set(Stream, Session.put(notification_handler, Pred)).
+    pg_session_get(Stream, Session0),
+    session_set_notification_handler(Session0, Pred, Session1),
+    pg_session_set(Stream, Session1).
 
 pg_session_push_notification(Stream, Notification) :-
-    pg_session_get(Stream, Session),
-    append(Session.pending_notifications, [Notification], Pending),
-    pg_session_set(Stream,
-                   Session.put(pending_notifications,
-                               Pending)).
+    pg_session_get(Stream, Session0),
+    session_push_notification(Session0, Notification, Session1),
+    pg_session_set(Stream, Session1).
 
 pg_session_pop_notification(Stream, Notification) :-
     pg_session_get(Stream, Session0),
-    Session0.pending_notifications = [Notification|Rest],
-    pg_session_set(Stream, Session0.put(pending_notifications, Rest)).
+    session_pop_notification(Session0, Notification, Session1),
+    pg_session_set(Stream, Session1).
 
 pg_session_store_prepared_statement(Stream, Name, ParamOids) :-
-    pg_session_get(Stream, Session),
-    put_assoc_list(Name, ParamOids, Session.prepared_statements, Prepared),
-    pg_session_set(Stream, Session.put(prepared_statements, Prepared)).
+    pg_session_get(Stream, Session0),
+    session_store_prepared_statement(Session0, Name, ParamOids, Session1),
+    pg_session_set(Stream, Session1).
 
 pg_session_prepared_statement(Stream, Name, ParamOids) :-
     pg_session_get(Stream, Session),
-    memberchk(Name-ParamOids, Session.prepared_statements).
+    session_prepared_statement(Session, Name, ParamOids).
 
 pg_session_clear_prepared_statements(Stream) :-
-    (   session_state(Stream, Session)
-    ->  pg_session_set(Stream, Session.put(prepared_statements, []))
+    (   session_state(Stream, Session0)
+    ->  session_clear_prepared_statements(Session0, Session1),
+        pg_session_set(Stream, Session1)
     ;   true
     ).
 
 pg_session_set_last_command_tag(Stream, Tag) :-
-    pg_session_get(Stream, Session),
-    pg_session_set(Stream, Session.put(last_command_tag, Tag)).
+    pg_session_get(Stream, Session0),
+    session_set_last_command_tag(Session0, Tag, Session1),
+    pg_session_set(Stream, Session1).
 
 pg_session_backend_pid(Stream, PID) :-
     pg_session_get(Stream, Session),
@@ -163,6 +173,56 @@ pg_session_last_command_tag(Stream, Tag) :-
     pg_session_get(Stream, Session),
     Tag = Session.last_command_tag.
 
+% Pure session transitions (no store access). These express each state change
+% as an explicit State0->State1 step, keeping the transition logic testable
+% without a socket or the thread-local store.
+
+session_set_phase(Session0, Phase, Session1) :-
+    Session1 = Session0.put(phase, Phase).
+
+session_mark_sync_required(Session0, Session1) :-
+    Session1 = Session0.put(_{phase: failed_until_sync, sync_required: true}).
+
+session_clear_sync_required(Session0, Session1) :-
+    Session1 = Session0.put(sync_required, false).
+
+session_set_backend_key(Session0, PID, Secret, Session1) :-
+    Session1 = Session0.put(_{backend_pid: PID, cancel_secret: Secret}).
+
+session_add_parameter(Session0, Key-Value, Session1) :-
+    put_assoc_list(Key, Value, Session0.server_params, Params),
+    Session1 = Session0.put(server_params, Params).
+
+session_set_tx_status(Session0, TxStatus, Session1) :-
+    Session1 = Session0.put(tx_status, TxStatus).
+
+session_set_notice_handler(Session0, Pred, Session1) :-
+    Session1 = Session0.put(notice_handler, Pred).
+
+session_set_notification_handler(Session0, Pred, Session1) :-
+    Session1 = Session0.put(notification_handler, Pred).
+
+session_push_notification(Session0, Notification, Session1) :-
+    append(Session0.pending_notifications, [Notification], Pending),
+    Session1 = Session0.put(pending_notifications, Pending).
+
+session_pop_notification(Session0, Notification, Session1) :-
+    Session0.pending_notifications = [Notification|Rest],
+    Session1 = Session0.put(pending_notifications, Rest).
+
+session_store_prepared_statement(Session0, Name, ParamOids, Session1) :-
+    put_assoc_list(Name, ParamOids, Session0.prepared_statements, Prepared),
+    Session1 = Session0.put(prepared_statements, Prepared).
+
+session_prepared_statement(Session, Name, ParamOids) :-
+    memberchk(Name-ParamOids, Session.prepared_statements).
+
+session_clear_prepared_statements(Session0, Session1) :-
+    Session1 = Session0.put(prepared_statements, []).
+
+session_set_last_command_tag(Session0, Tag, Session1) :-
+    Session1 = Session0.put(last_command_tag, Tag).
+
 pg_session_prepare_command(Stream, Phase) :-
     pg_session_get(Stream, Session),
     (   Session.sync_required == true
@@ -175,50 +235,55 @@ pg_session_prepare_command(Stream, Phase) :-
     ).
 
 pg_session_read_until_ready(Stream, Messages) :-
-    read_until_ready(Stream, [], RevMessages),
+    pg_session_get(Stream, Session0),
+    read_until_ready(Stream, Session0, Session, [], RevMessages),
+    pg_session_set(Stream, Session),
     reverse(RevMessages, Messages).
 
-read_until_ready(Stream, Acc, Messages) :-
+% The session record is threaded explicitly through the read loop as
+% Session0->Session and persisted to the store exactly once, instead of
+% mutating the thread-local store on every backend message.
+read_until_ready(Stream, Session0, Session, Acc, Messages) :-
     read_message(Stream, Message),
     Message = Type-Bytes,
-    process_backend_message(Stream, Type, Bytes, Acc, NextAcc, Done),
+    process_backend_message(Stream, Type, Bytes, Session0, Session1, Acc, NextAcc, Done),
     (   Done == true
-    ->  Messages = NextAcc
-    ;   read_until_ready(Stream, NextAcc, Messages)
+    ->  Session = Session1,
+        Messages = NextAcc
+    ;   read_until_ready(Stream, Session1, Session, NextAcc, Messages)
     ).
 
-process_backend_message(Stream, parameter, Bytes, Acc, Acc, false) :-
+process_backend_message(_Stream, parameter, Bytes, Session0, Session1, Acc, Acc, false) :-
     !,
     parse_parameter_status(Bytes, KeyValue),
-    pg_session_add_parameter(Stream, KeyValue).
-process_backend_message(Stream, backend_key, Bytes, Acc, Acc, false) :-
+    session_add_parameter(Session0, KeyValue, Session1).
+process_backend_message(_Stream, backend_key, Bytes, Session0, Session1, Acc, Acc, false) :-
     !,
     parse_backend_key(Bytes, PID, Secret),
-    pg_session_set_backend_key(Stream, PID, Secret).
-process_backend_message(Stream, notice, Bytes, Acc, Acc, false) :-
+    session_set_backend_key(Session0, PID, Secret, Session1).
+process_backend_message(Stream, notice, Bytes, Session0, Session1, Acc, Acc, false) :-
     !,
-    pg_async:pg_process_async_message(Stream, notice-Bytes).
-process_backend_message(Stream, notify, Bytes, Acc, Acc, false) :-
+    pg_async:process_async_message(Stream, notice-Bytes, Session0, Session1).
+process_backend_message(Stream, notify, Bytes, Session0, Session1, Acc, Acc, false) :-
     !,
-    pg_async:pg_process_async_message(Stream, notify-Bytes).
-process_backend_message(Stream, cmd_complete, Bytes, Acc, [cmd_complete-Bytes|Acc], false) :-
+    pg_async:process_async_message(Stream, notify-Bytes, Session0, Session1).
+process_backend_message(_Stream, cmd_complete, Bytes, Session0, Session1, Acc, [cmd_complete-Bytes|Acc], false) :-
     !,
     parse_command_complete(Bytes, Tag),
-    pg_session_set_last_command_tag(Stream, Tag).
-process_backend_message(Stream, error, Bytes, Acc, [error-Bytes|Acc], false) :-
+    session_set_last_command_tag(Session0, Tag, Session1).
+process_backend_message(_Stream, error, Bytes, Session0, Session1, Acc, [error-Bytes|Acc], false) :-
     !,
-    pg_session_get(Stream, Session),
-    (   Session.phase == extended_query
-    ->  pg_session_mark_sync_required(Stream)
-    ;   true
+    (   Session0.phase == extended_query
+    ->  session_mark_sync_required(Session0, Session1)
+    ;   Session1 = Session0
     ).
-process_backend_message(Stream, ready, Bytes, Acc, Acc, true) :-
+process_backend_message(_Stream, ready, Bytes, Session0, Session, Acc, Acc, true) :-
     !,
     parse_ready_for_query(Bytes, TxStatus),
-    pg_session_set_tx_status(Stream, TxStatus),
-    pg_session_set_phase(Stream, ready),
-    pg_session_clear_sync_required(Stream).
-process_backend_message(_Stream, Type, Bytes, Acc, [Type-Bytes|Acc], false).
+    session_set_tx_status(Session0, TxStatus, Session1),
+    session_set_phase(Session1, ready, Session2),
+    session_clear_sync_required(Session2, Session).
+process_backend_message(_Stream, Type, Bytes, Session, Session, Acc, [Type-Bytes|Acc], false).
 
 put_assoc_list(Key, Value, Pairs0, [Key-Value|Pairs]) :-
     remove_assoc_list(Key, Pairs0, Pairs).
