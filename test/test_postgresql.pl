@@ -357,11 +357,11 @@ test(disconnect_cleans_prepared_state) :-
         once((
             Connection = pg_conn(Stream, _, _, _, _, _),
             pg_prepare(Connection, cleanup_stmt, "SELECT 1 AS n", []),
-            assertion(pg_prepared:prepared_statement(Stream, cleanup_stmt, []))
+            assertion(pg_session:pg_session_prepared_statement(Stream, cleanup_stmt, []))
         )),
         pg_disconnect(Connection)
     ),
-    assertion(\+ pg_prepared:prepared_statement(_, _, _)).
+    assertion(\+ pg_session:session_state(_, _)).
 
 test(command_complete) :-
     with_connection(

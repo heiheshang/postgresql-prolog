@@ -249,7 +249,6 @@ cleanup_connection_stream(Stream) :-
     close(Stream, [force(true)]).
 
 cleanup_connection_state(Stream) :-
-    pg_prepared:pg_forget_prepared_statements(Stream),
     pg_session_close(Stream).
 
 finish_transaction(Connection, exit) :-

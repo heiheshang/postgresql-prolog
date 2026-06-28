@@ -10,9 +10,6 @@
 :- use_module(library(postgresql_prolog/pg_session)).
 :- use_module(library(postgresql_prolog/pg_types)).
 
-:- thread_local
-    prepared_statement/3.
-
 /** <module> PostgreSQL prepared-query helpers.
 
 Internal extended-query layer for parameterized queries and prepared
@@ -45,12 +42,11 @@ pg_prepare_statement(Connection, Name, SQL, ParamTypes) :-
     write_messages(Stream, [ParseMsg, SyncMsg]),
     pg_session_read_until_ready(Stream, Msgs),
     ensure_prepare_success(Msgs),
-    retractall(prepared_statement(Stream, Name, _)),
-    assertz(prepared_statement(Stream, Name, ParamOids)).
+    pg_session_store_prepared_statement(Stream, Name, ParamOids).
 
 pg_execute_statement(Connection, Name, Params, Result) :-
     get_connection_stream(Connection, Stream),
-    (   prepared_statement(Stream, Name, ParamOids)
+    (   pg_session_prepared_statement(Stream, Name, ParamOids)
     ->  true
     ;   throw(error(existence_error(prepared_statement, Name), _))
     ),
@@ -65,7 +61,7 @@ pg_execute_statement(Connection, Name, Params, Result) :-
     handle_query_response(Msgs, Result).
 
 pg_forget_prepared_statements(Stream) :-
-    retractall(prepared_statement(Stream, _, _)).
+    pg_session_clear_prepared_statements(Stream).
 
 unspecified_param_oids([], []).
 unspecified_param_oids([_|T], [0|Rest]) :-
