@@ -3,7 +3,8 @@
     pg_set_notification_processor/2,
     pg_next_notification/2,
     pg_wait_for_notification/3,
-    pg_process_async_message/2
+    pg_process_async_message/2,
+    process_async_message/4
 ]).
 
 :- use_module(library(debug)).
@@ -42,28 +43,35 @@ pg_wait_for_notification(Connection, Timeout, Notification) :-
     ;   wait_for_notification(Connection, Timeout, Notification)
     ).
 
-pg_process_async_message(Connection, notice-Bytes) :-
+% Store-based wrapper for callers that route a single async message against
+% the connection's persisted session (e.g. the COPY side-message handler).
+pg_process_async_message(Connection, Msg) :-
+    pg_session_get(Connection, Session0),
+    process_async_message(Connection, Msg, Session0, Session1),
+    pg_session_set(Connection, Session1).
+
+% Explicit State0->State1 async routing, used while the session record is
+% being threaded through the read loop without touching the store.
+process_async_message(_Connection, notice-Bytes, Session, Session) :-
     !,
     parse_notice(Bytes, Fields),
-    pg_session_get(Connection, Session),
     (   Session.notice_handler \== none
     ->  Pred = Session.notice_handler,
         call(Pred, Fields)
     ;   debug(pg(notice), 'NOTICE: ~w', [Fields])
     ).
-pg_process_async_message(Connection, notify-Bytes) :-
+process_async_message(Connection, notify-Bytes, Session0, Session1) :-
     !,
     parse_notification(Bytes, Notification),
-    pg_session_push_notification(Connection, Notification),
-    pg_session_get(Connection, Session),
-    (   Session.notification_handler \== none
-    ->  Pred = Session.notification_handler,
+    session_push_notification(Session0, Notification, Session1),
+    (   Session1.notification_handler \== none
+    ->  Pred = Session1.notification_handler,
         call(Pred, Notification)
     ;   true
     ),
     debug(pg(notify), 'Connection ~p received notification ~p',
           [Connection, Notification]).
-pg_process_async_message(_Connection, _Msg).
+process_async_message(_Connection, _Msg, Session, Session).
 
 wait_for_notification(Connection, Timeout, Notification) :-
     must_be(number, Timeout),
