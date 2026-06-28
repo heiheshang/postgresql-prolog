@@ -16,6 +16,9 @@
     pg_session_set_notification_handler/2,
     pg_session_push_notification/2,
     pg_session_pop_notification/2,
+    pg_session_store_prepared_statement/3,
+    pg_session_prepared_statement/3,
+    pg_session_clear_prepared_statements/1,
     pg_session_set_last_command_tag/2,
     pg_session_backend_pid/2,
     pg_session_server_parameter/3,
@@ -34,8 +37,9 @@
 
 Internal session layer for the PostgreSQL driver.
 This module stores per-connection state such as protocol phase, transaction
-status, backend key data, server parameters, handlers, and queued
-notifications, and it centralizes draining to `ReadyForQuery`.
+status, backend key data, server parameters, handlers, queued notifications,
+and prepared-statement metadata, and it centralizes draining to
+`ReadyForQuery`.
 
 It supports the public API in `pg.pl` but is not intended for direct
 application use.
@@ -65,6 +69,7 @@ pg_session_new(_Stream, Host, Port, session{
     notice_handler: none,
     notification_handler: none,
     pending_notifications: [],
+    prepared_statements: [],
     last_command_tag: none,
     sync_required: false
 }).
@@ -125,6 +130,21 @@ pg_session_pop_notification(Stream, Notification) :-
     pg_session_get(Stream, Session0),
     Session0.pending_notifications = [Notification|Rest],
     pg_session_set(Stream, Session0.put(pending_notifications, Rest)).
+
+pg_session_store_prepared_statement(Stream, Name, ParamOids) :-
+    pg_session_get(Stream, Session),
+    put_assoc_list(Name, ParamOids, Session.prepared_statements, Prepared),
+    pg_session_set(Stream, Session.put(prepared_statements, Prepared)).
+
+pg_session_prepared_statement(Stream, Name, ParamOids) :-
+    pg_session_get(Stream, Session),
+    memberchk(Name-ParamOids, Session.prepared_statements).
+
+pg_session_clear_prepared_statements(Stream) :-
+    (   session_state(Stream, Session)
+    ->  pg_session_set(Stream, Session.put(prepared_statements, []))
+    ;   true
+    ).
 
 pg_session_set_last_command_tag(Stream, Tag) :-
     pg_session_get(Stream, Session),
