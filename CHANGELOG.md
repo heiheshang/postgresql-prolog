@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+## 0.3.0
+
+Feature release that adds SCRAM-SHA-256 (SASL) authentication.
+
+Highlights:
+
+- add SCRAM-SHA-256 (SASL) authentication without channel binding
+- add a pure `pg_scram.pl` layer (PBKDF2-HMAC-SHA256, client proof, and
+  server-signature verification) validated against the RFC 7677 test vectors
+- parse the SASL mechanism list and carry the full client-first message in
+  `pg_protocol.pl`
+- drive the SASL exchange and verify the server signature in `pg_auth.pl`
+- add a `scram-sha-256` mode to the local test harness via
+  `make test-local-pg-scram`
+- preserve the existing public predicate signatures and local test coverage
+
 ## 0.2.1
 
 Patch release that moves prepared statements and session message handling
