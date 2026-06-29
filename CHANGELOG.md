@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+## 0.2.1
+
+Patch release that moves prepared statements and session message handling
+closer to explicit per-connection state without changing the public API.
+
+Highlights:
+
+- move prepared statements into the per-session state container
+- thread session state explicitly through the backend read loop
+- reduce disconnect cleanup to a single session-state teardown path
+- keep async notice/notify routing and COPY side-message handling compatible
+- preserve the existing public predicate signatures and local test coverage
+
 ## 0.2.0
 
 Feature release that expands COPY support, adds cancellation and profiling

@@ -1,5 +1,5 @@
 name(postgresql_prolog).
-version('0.2.0').
+version('0.2.1').
 title('PostgreSQL driver for SWI-Prolog').
 keywords([postgresql,postgres,database,sql]).
 author('heiheshang', 'strangerfuture2636@gmail.com').
