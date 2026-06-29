@@ -79,10 +79,21 @@ Remaining:
 
 6. deeper COPY recovery and protocol suite
 
+## Authentication
+
+7. SCRAM-SHA-256 (SASL)
+
+- Status: done
+- Added a pure `pg_scram.pl` layer (PBKDF2-HMAC-SHA256, client/server proof, signature verification), validated against the RFC 7677 test vectors.
+- Extended `pg_protocol.pl` to parse the SASL mechanism list and fixed `sasl_initial_response/3` to carry the full client-first message.
+- Drove the SASL exchange and server-signature verification from `pg_auth.pl`.
+- Added a `scram-sha-256` mode to the local test harness (`make test-local-pg-scram`); the full suite passes over a real SCRAM connection.
+- Remaining: SCRAM channel binding (`SCRAM-SHA-256-PLUS`), which depends on SSL.
+
 ## Summary
 
 The shortest practical path is:
 
 1. port more COPY scenarios and deepen the COPY protocol suite
 2. expand the type system
-3. add SCRAM/SASL and SSL
+3. add SSL, then SCRAM channel binding (`SCRAM-SHA-256-PLUS`)

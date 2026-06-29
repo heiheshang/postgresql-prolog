@@ -21,7 +21,7 @@ SWIPL_COVERAGE = $(SWIPL) -q -g "$(PACK_PATH_SETUP), use_module(library(prolog_c
 SWIPL_SMOKE = $(SWIPL) -q -g "$(PACK_PATH_SETUP), use_module(library(postgresql_prolog/pg)), pg:pg_connect('$(PGHOST)':$(PGPORT), C, [user(\"$(PGUSER)\"),password(\"$(PGPASSWORD)\"),database(\"$(PGDATABASE)\")]), pg:pg_query(C, \"SELECT 1 AS n\", R), write_term(R,[quoted(true)]), nl, pg:pg_disconnect(C), halt."
 SWIPL_ROW_PROFILE = $(SWIPL) -q -g "$(PACK_PATH_SETUP), ['bench/pg_row_profile.pl'], pg_row_profile:run, halt."
 
-.PHONY: smoke test coverage release clean test-local-pg test-local-pg-md5 profile-row-decode profile-row-decode-md5 start-test-postgres stop-test-postgres reset-test-postgres
+.PHONY: smoke test coverage release clean test-local-pg test-local-pg-md5 test-local-pg-scram profile-row-decode profile-row-decode-md5 start-test-postgres stop-test-postgres reset-test-postgres
 
 smoke:
 	@$(TEST_ENV) $(SWIPL_SMOKE)
@@ -49,6 +49,9 @@ test-local-pg:
 
 test-local-pg-md5:
 	@$(MAKE) test-local-pg TEST_PG_AUTH=md5 TEST_PG_PASSWORD="$(TEST_PG_PASSWORD)"
+
+test-local-pg-scram:
+	@$(MAKE) test-local-pg TEST_PG_AUTH=scram-sha-256 TEST_PG_PASSWORD="$(TEST_PG_PASSWORD)"
 
 profile-row-decode:
 	@TEST_PG_AUTH="$(TEST_PG_AUTH)" TEST_PG_PASSWORD="$(TEST_PG_PASSWORD)" bash "scripts/start_test_postgres.sh" >/dev/null

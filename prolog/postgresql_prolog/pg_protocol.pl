@@ -27,6 +27,7 @@
     parse_message_type/2,
     parse_error_fields/2,
     parse_authentication/2,
+    parse_sasl_mechanisms/2,
     parse_parameter_status/2,
     parse_backend_key/3,
     parse_notification/2,
@@ -108,14 +109,14 @@ startup_message(User, Database, Bytes) :-
 password_message(Password, Bytes) :-
     build_message(password, cstring(Password), Bytes).
 
-sasl_initial_response(Mechanism, ClientNonce, Bytes) :-
-    length(ClientNonce, ClientNonceLen),
+sasl_initial_response(Mechanism, ClientFirst, Bytes) :-
+    length(ClientFirst, ClientFirstLen),
     build_message(
         password,
         (
             cstring(Mechanism),
-            int32be(ClientNonceLen),
-            bytes(ClientNonce)
+            int32be(ClientFirstLen),
+            bytes(ClientFirst)
         ),
         Bytes
     ).
@@ -278,11 +279,16 @@ parse_server_message_type(TypeByte, unknown(TypeByte)).
 parse_authentication([0,0,0,0|_], ok) :- !.
 parse_authentication([0,0,0,3|_], password) :- !.
 parse_authentication([0,0,0,5|Rest], md5_salt(Rest)) :- !.
-parse_authentication([0,0,0,10|_], sasl) :- !.
+parse_authentication([0,0,0,10|Rest], sasl(Mechanisms)) :-
+    !,
+    parse_sasl_mechanisms(Rest, Mechanisms).
 parse_authentication([0,0,0,11|Rest], sasl_continue(Rest)) :- !.
 parse_authentication([0,0,0,12|Rest], sasl_final(Rest)) :- !.
 parse_authentication([B3,B2,B1,B0|_], unknown(AuthType)) :-
     AuthType is (B3 << 24) + (B2 << 16) + (B1 << 8) + B0.
+
+parse_sasl_mechanisms(Bytes, Mechanisms) :-
+    once(phrase(sasl_mechanisms(Mechanisms), Bytes)).
 
 parse_parameter_status(Bytes, Key-Value) :-
     once(phrase((cstring(Key), cstring(Value)), Bytes)).
@@ -482,6 +488,17 @@ startup_parameters([Key-Value|Parameters]) -->
     cstring(Key),
     cstring(Value),
     startup_parameters(Parameters).
+
+sasl_mechanisms(Mechanisms) -->
+    peek_byte(Byte),
+    sasl_mechanisms_dispatch(Byte, Mechanisms).
+
+sasl_mechanisms_dispatch(0, []) -->
+    [0].
+sasl_mechanisms_dispatch(Byte, [Mechanism|Mechanisms]) -->
+    { Byte =\= 0 },
+    cstring(Mechanism),
+    sasl_mechanisms(Mechanisms).
 
 oids([]) --> [].
 oids([Oid|Oids]) -->
