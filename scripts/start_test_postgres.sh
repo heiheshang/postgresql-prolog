@@ -28,11 +28,11 @@ require_cmd postgres
 require_cmd psql
 
 case "${TEST_PG_AUTH}" in
-    trust|md5)
+    trust|md5|scram-sha-256)
         ;;
     *)
         printf 'Unsupported TEST_PG_AUTH: %s\n' "${TEST_PG_AUTH}" >&2
-        printf 'Expected one of: trust, md5\n' >&2
+        printf 'Expected one of: trust, md5, scram-sha-256\n' >&2
         exit 1
         ;;
 esac
@@ -60,10 +60,10 @@ full_page_writes = off
 log_min_messages = warning
 EOF
 
-if [[ "${TEST_PG_AUTH}" == "md5" ]]; then
-    HOST_AUTH_METHOD=md5
-else
+if [[ "${TEST_PG_AUTH}" == "trust" ]]; then
     HOST_AUTH_METHOD=trust
+else
+    HOST_AUTH_METHOD="${TEST_PG_AUTH}"
 fi
 
 cat > "${DATA_DIR}/pg_hba.conf" <<EOF
@@ -102,9 +102,9 @@ END
 \$\$;
 EOF
 
-if [[ "${TEST_PG_AUTH}" == "md5" ]]; then
+if [[ "${TEST_PG_AUTH}" != "trust" ]]; then
     psql -h "${STATE_DIR}" -p "${PGPORT_VALUE}" -U postgres -d postgres -v ON_ERROR_STOP=1 <<EOF >/dev/null
-SET password_encryption = 'md5';
+SET password_encryption = '${TEST_PG_AUTH}';
 ALTER ROLE "${PGUSER_VALUE}" PASSWORD '${TEST_PG_PASSWORD}';
 EOF
 fi
@@ -124,7 +124,7 @@ export PGDATABASE="${PGDATABASE_VALUE}"
 export TEST_PG_AUTH="${TEST_PG_AUTH}"
 EOF
 
-if [[ "${TEST_PG_AUTH}" == "md5" ]]; then
+if [[ "${TEST_PG_AUTH}" != "trust" ]]; then
 cat >> "${ENV_FILE}" <<EOF
 export PGPASSWORD="${TEST_PG_PASSWORD}"
 EOF

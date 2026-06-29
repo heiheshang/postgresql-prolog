@@ -89,10 +89,11 @@ Current supported areas include:
   * streaming `COPY TO STDOUT`
   * backend PID, server parameter, and last command metadata
   * query cancellation via `pg_cancel/1`
+  * cleartext password, `md5`, and SCRAM-SHA-256 (SASL) authentication
 
 Not implemented yet:
 
-  * SCRAM / SASL authentication
+  * SCRAM channel binding (`SCRAM-SHA-256-PLUS`)
   * SSL
   * binary result formats for extended query mode
 */

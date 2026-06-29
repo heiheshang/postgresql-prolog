@@ -35,7 +35,7 @@ Implemented now:
 - prepared statements and parameterized queries
 - explicit session state and protocol-phase tracking via `pg_session.pl`
 - unified message-reading and recovery to `ReadyForQuery`
-- cleartext password and `md5` authentication
+- cleartext password, `md5`, and SCRAM-SHA-256 (SASL) authentication
 - basic result decoding for `int4`, `int8`, `text`, `varchar`, `bool`, and `null`
 - LISTEN / NOTIFY
 - `COPY FROM STDIN` for text, csv, and binary input via `pg_copy.pl`
@@ -46,7 +46,7 @@ Implemented now:
 
 Not implemented yet:
 
-- SCRAM / SASL authentication
+- SCRAM channel binding (`SCRAM-SHA-256-PLUS`)
 - SSL
 - binary result formats for extended query mode
 
@@ -240,10 +240,11 @@ Supported now:
 
 - cleartext password
 - `md5`
+- SCRAM-SHA-256 (SASL), without channel binding
 
 Not supported yet:
 
-- SCRAM / SASL
+- SCRAM channel binding (`SCRAM-SHA-256-PLUS`), which requires SSL
 - SSL
 
 ## Testing and Development
@@ -258,8 +259,8 @@ Environment variables used by the smoke and test commands:
 
 Local test server options:
 
-- `TEST_PG_AUTH` with `trust` or `md5`
-- `TEST_PG_PASSWORD` for `md5` mode
+- `TEST_PG_AUTH` with `trust`, `md5`, or `scram-sha-256`
+- `TEST_PG_PASSWORD` for `md5` and `scram-sha-256` modes
 
 Commands:
 
@@ -269,6 +270,7 @@ make test
 make coverage
 make test-local-pg
 make test-local-pg-md5
+make test-local-pg-scram
 make profile-row-decode
 make profile-row-decode-md5
 make release
@@ -279,10 +281,12 @@ Examples:
 ```bash
 make test-local-pg
 make test-local-pg-md5
+make test-local-pg-scram
 TEST_PG_AUTH=md5 TEST_PG_PASSWORD=md5pass make test-local-pg
+TEST_PG_AUTH=scram-sha-256 TEST_PG_PASSWORD=scrampass make test-local-pg
 ```
 
-`make test-local-pg` starts a disposable local PostgreSQL instance. In `trust` mode the generated `.test-pg/env.sh` omits `PGPASSWORD`. In `md5` mode it exports `PGPASSWORD` so the same test command can authenticate without extra setup.
+`make test-local-pg` starts a disposable local PostgreSQL instance. In `trust` mode the generated `.test-pg/env.sh` omits `PGPASSWORD`. In `md5` and `scram-sha-256` modes it exports `PGPASSWORD` so the same test command can authenticate without extra setup.
 
 `make coverage` prints a summary and stores it in `coverage/summary.txt`.
 
@@ -312,8 +316,8 @@ The profiler runner accepts environment overrides:
 
 Planned next steps include:
 
-- SCRAM / SASL authentication
 - SSL support
+- SCRAM channel binding (`SCRAM-SHA-256-PLUS`) once SSL is available
 - broader COPY protocol coverage and more imported `epgsql_copy_SUITE` scenarios
 - richer binary decoding paths
 - broader built-in type coverage
@@ -325,7 +329,7 @@ Contributions are welcome.
 Before sending changes:
 
 - run `make test`
-- if you change the local PostgreSQL test harness, also run `make test-local-pg` and `make test-local-pg-md5`
+- if you change the local PostgreSQL test harness, also run `make test-local-pg`, `make test-local-pg-md5`, and `make test-local-pg-scram`
 - keep changes aligned with the split between `pg.pl`, `pg_protocol.pl`, `pg_types.pl`, and `pg_session.pl`
 
 ## License

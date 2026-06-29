@@ -12,6 +12,7 @@ setup_local_pack_path :-
 
 :- use_module(library(postgresql_prolog/pg)).
 :- use_module(library(postgresql_prolog/pg_protocol)).
+:- use_module(library(postgresql_prolog/pg_scram)).
 
 pg_env(Var, Default, Value) :-
     (   getenv(Var, Raw),
@@ -147,20 +148,74 @@ test(parse_error_fields_preserves_existing_reverse_accumulator_order) :-
     assertion(Fields == [67-"23505", 77-"oops"]).
 
 test(parse_authentication_decodes_known_and_unknown_methods) :-
+    string_codes("SCRAM-SHA-256", MechanismCodes),
+    append(MechanismCodes, [0, 0], MechanismBody),
+    append([0, 0, 0, 10], MechanismBody, SASLBytes),
     parse_authentication([0, 0, 0, 0], Ok),
     parse_authentication([0, 0, 0, 3], Password),
     parse_authentication([0, 0, 0, 5, 1, 2, 3, 4], MD5),
-    parse_authentication([0, 0, 0, 10], SASL),
+    parse_authentication(SASLBytes, SASL),
     parse_authentication([0, 0, 0, 11, 9, 8], SASLContinue),
     parse_authentication([0, 0, 0, 12, 7, 6], SASLFinal),
     parse_authentication([0, 0, 0, 99], Unknown),
     assertion(Ok == ok),
     assertion(Password == password),
     assertion(MD5 == md5_salt([1, 2, 3, 4])),
-    assertion(SASL == sasl),
+    assertion(SASL == sasl(["SCRAM-SHA-256"])),
     assertion(SASLContinue == sasl_continue([9, 8])),
     assertion(SASLFinal == sasl_final([7, 6])),
     assertion(Unknown == unknown(99)).
+
+test(parse_sasl_mechanisms_decodes_multiple_mechanisms) :-
+    string_codes("SCRAM-SHA-256", FirstCodes),
+    string_codes("SCRAM-SHA-256-PLUS", SecondCodes),
+    append(FirstCodes, [0], FirstField),
+    append(SecondCodes, [0], SecondField),
+    append(FirstField, SecondField, MechanismFields),
+    append(MechanismFields, [0], Bytes),
+    parse_sasl_mechanisms(Bytes, Mechanisms),
+    assertion(Mechanisms == ["SCRAM-SHA-256", "SCRAM-SHA-256-PLUS"]).
+
+test(scram_client_messages_follow_scram_format) :-
+    scram_client_first_bare("user", "rOprNGfwEbeRWgbNEkqO", ClientFirstBare),
+    assertion(ClientFirstBare == "n=user,r=rOprNGfwEbeRWgbNEkqO"),
+    scram_client_first_message(ClientFirstBare, ClientFirstMessage),
+    assertion(ClientFirstMessage == "n,,n=user,r=rOprNGfwEbeRWgbNEkqO"),
+    scram_client_final_without_proof("COMBINED", ClientFinalWithoutProof),
+    assertion(ClientFinalWithoutProof == "c=biws,r=COMBINED").
+
+test(scram_client_first_bare_escapes_reserved_characters) :-
+    scram_client_first_bare("a,b=c", "NONCE", ClientFirstBare),
+    assertion(ClientFirstBare == "n=a=2Cb=3Dc,r=NONCE").
+
+test(scram_parse_server_first_extracts_nonce_salt_iterations) :-
+    scram_parse_server_first(
+        "r=rOprNGfwEbeRWgbNEkqO%hvYDpWUa2RaTCAfuxFIlj)hNlF$k0,s=W22ZaJ0SNY7soEsUEjb6gQ==,i=4096",
+        Nonce, Salt, Iterations),
+    assertion(Nonce == "rOprNGfwEbeRWgbNEkqO%hvYDpWUa2RaTCAfuxFIlj)hNlF$k0"),
+    assertion(Iterations == 4096),
+    scram_base64_encode(Salt, SaltBase64),
+    assertion(SaltBase64 == "W22ZaJ0SNY7soEsUEjb6gQ==").
+
+test(scram_parse_server_final_decodes_signature) :-
+    scram_parse_server_final("v=6rriTRBi23WpRR/wtup+mMhUZUn/dB5nLTJRsjl95G4=", Signature),
+    scram_base64_encode(Signature, SignatureBase64),
+    assertion(SignatureBase64 == "6rriTRBi23WpRR/wtup+mMhUZUn/dB5nLTJRsjl95G4=").
+
+test(scram_client_proof_and_server_signature_match_rfc7677) :-
+    scram_base64_decode("W22ZaJ0SNY7soEsUEjb6gQ==", Salt),
+    scram_salted_password("pencil", Salt, 4096, SaltedPassword),
+    scram_auth_message(
+        "n=user,r=rOprNGfwEbeRWgbNEkqO",
+        "r=rOprNGfwEbeRWgbNEkqO%hvYDpWUa2RaTCAfuxFIlj)hNlF$k0,s=W22ZaJ0SNY7soEsUEjb6gQ==,i=4096",
+        "c=biws,r=rOprNGfwEbeRWgbNEkqO%hvYDpWUa2RaTCAfuxFIlj)hNlF$k0",
+        AuthMessage),
+    scram_client_proof(SaltedPassword, AuthMessage, ClientProof),
+    scram_server_signature(SaltedPassword, AuthMessage, ServerSignature),
+    scram_base64_encode(ClientProof, ClientProofBase64),
+    scram_base64_encode(ServerSignature, ServerSignatureBase64),
+    assertion(ClientProofBase64 == "dHzbZapWIk4jUhN+Ute9ytag9zjfMHgsqmmiz7AndVQ="),
+    assertion(ServerSignatureBase64 == "6rriTRBi23WpRR/wtup+mMhUZUn/dB5nLTJRsjl95G4=").
 
 test(parse_backend_key_decodes_pid_and_secret) :-
     parse_backend_key([0, 0, 0, 42, 0, 0, 1, 2], PID, Secret),
