@@ -3,6 +3,7 @@
 ]).
 
 :- use_module(library(crypto)).
+:- use_module(library(lists)).
 
 :- use_module(library(postgresql_prolog/pg_protocol)).
 :- use_module(library(postgresql_prolog/pg_scram)).

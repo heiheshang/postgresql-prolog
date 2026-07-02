@@ -9,6 +9,7 @@
 
 :- use_module(library(debug)).
 :- use_module(library(socket)).
+:- use_module(library(error)).
 
 :- use_module(library(postgresql_prolog/pg_protocol)).
 :- use_module(library(postgresql_prolog/pg_session)).

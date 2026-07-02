@@ -28,6 +28,8 @@
     session_push_notification/3
 ]).
 
+:- use_module(library(lists)).
+:- use_module(library(error)).
 :- use_module(library(postgresql_prolog/pg_async)).
 :- use_module(library(postgresql_prolog/pg_protocol)).
 

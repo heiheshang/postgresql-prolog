@@ -13,6 +13,9 @@
 :- use_module(library(crypto)).
 :- use_module(library(utf8)).
 :- use_module(library(date)).
+:- use_module(library(lists)).
+:- use_module(library(apply)).
+:- use_module(library(error)).
 :- use_module(library(http/json)).
 :- use_module(library(uuid)).
 :- use_module(library(postgresql_prolog/pg_protocol), [

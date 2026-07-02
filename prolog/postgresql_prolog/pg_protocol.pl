@@ -44,6 +44,7 @@
 :- use_module(library(crypto)).
 :- use_module(library(base64)).
 :- use_module(library(utf8)).
+:- use_module(library(lists)).
 
 /** <module> PostgreSQL wire protocol codec.
 
